@@ -194,7 +194,7 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "Modifies the schema of a table — column drops are irreversible",
     ),
     (
-        "sql-create-schema",
+        "sql-create-ddl",
         "SQL — Destructive DDL",
         None,
         r"(?i)\bCREATE\s+(?:TABLE|DATABASE|SCHEMA)\b",
@@ -448,7 +448,8 @@ mod tests {
         assert!(blocks(r#"psql -c "DROP TABLE IF EXISTS legacy""#));
         assert!(blocks(r#"mysql -e "drop database staging""#));
         assert!(blocks(r#"psql -c "DROP SCHEMA public""#));
-        assert!(!blocks(r#"psql -c "CREATE INDEX idx ON users(email)""#));
+        assert!(blocks(r#"psql -c "DROP INDEX idx_email""#));
+        assert!(!blocks("echo drop_table_migration_001"));
     }
 
     #[test]
@@ -459,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn blocks_sql_create_schema() {
+    fn blocks_sql_create_ddl() {
         assert!(blocks(r#"mysql -e "CREATE TABLE tmp (id INT)""#));
         assert!(blocks(r#"psql -c "CREATE DATABASE test_db""#));
         assert!(blocks(r#"psql -c "create schema analytics""#));
@@ -512,7 +513,7 @@ mod tests {
             "k8s-proxy",
             "k8s-run-privileged",
             "sql-alter-table",
-            "sql-create-schema",
+            "sql-create-ddl",
             "sql-delete",
             "sql-drop",
             "sql-truncate",
@@ -551,7 +552,7 @@ mod tests {
         );
         assert_eq!(
             hit_id(r#"mysql -e "CREATE TABLE tmp (id INT)""#),
-            Some("sql-create-schema")
+            Some("sql-create-ddl")
         );
     }
 }
