@@ -251,15 +251,78 @@ fn run_hook() -> ExitCode {
     let Ok(input) = serde_json::from_str::<HookInput>(&buf) else {
         return ExitCode::SUCCESS;
     };
-    if input.tool_name != "Bash" {
-        return ExitCode::SUCCESS;
+    match input.tool_name.as_str() {
+        "Bash" => {
+            let command = input
+                .tool_input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            run_check(command)
+        }
+        "Write" => {
+            let content = input
+                .tool_input
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            run_check_content(content)
+        }
+        "Edit" => {
+            let new_string = input
+                .tool_input
+                .get("new_string")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            run_check_content(new_string)
+        }
+        _ => ExitCode::SUCCESS,
     }
-    let command = input
-        .tool_input
-        .get("command")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    run_check(command)
+}
+
+/// Shared inner check: prints to stderr and returns true if blocked.
+/// `label` appears in the message, e.g. "file write" or "script execution (/tmp/run.sh)".
+fn check_content_blocked(content: &str, label: &str) -> bool {
+    if let Some(hit) = blacklist::check(content) {
+        eprintln!("rsh blocked {} (rule: {}): {}", label, hit.id, hit.reason);
+        return true;
+    }
+    // Load forbid config once for all lines instead of re-reading disk per line.
+    let cfg = forbid::load();
+    if cfg.is_empty() {
+        return false;
+    }
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(hit) = forbid::check_with(line, &aliases::ALIASES, &cfg, &forbid::KubectlEnv) {
+            let kind = match hit.kind {
+                forbid::HitKind::Cluster => "cluster",
+                forbid::HitKind::Namespace => "namespace",
+            };
+            let origin = if hit.from_current_context {
+                " (current kubeconfig)"
+            } else {
+                ""
+            };
+            eprintln!(
+                "rsh blocked {}: forbidden {kind} '{}'{origin}",
+                label, hit.value
+            );
+            return true;
+        }
+    }
+    false
+}
+
+fn run_check_content(content: &str) -> ExitCode {
+    if check_content_blocked(content, "file write") {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 fn run_check(command: &str) -> ExitCode {
@@ -283,7 +346,67 @@ fn run_check(command: &str) -> ExitCode {
         );
         return ExitCode::from(2);
     }
+    for path in script_paths_in(command) {
+        match std::fs::read_to_string(&path) {
+            Ok(content) => {
+                if check_content_blocked(&content, &format!("script execution ({path})")) {
+                    return ExitCode::from(2);
+                }
+            }
+            Err(_) => {} // unreadable or non-existent → fail-open
+        }
+    }
     ExitCode::SUCCESS
+}
+
+/// Splits a possibly multi-command string on shell separators and returns the
+/// path of any script file each segment would execute.
+fn script_paths_in(command: &str) -> Vec<String> {
+    command
+        .split(|c| c == ';' || c == '\n')
+        .flat_map(|s| s.split("&&"))
+        .flat_map(|s| s.split("||"))
+        .flat_map(|s| s.split('|'))
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with('#'))
+        .filter_map(extract_script_path)
+        .collect()
+}
+
+/// If `cmd` is an invocation of a script file, returns the file path; otherwise None.
+fn extract_script_path(cmd: &str) -> Option<String> {
+    const INTERPRETERS: &[&str] = &["bash", "sh", "zsh", "ksh", "dash", "fish"];
+
+    let tokens: Vec<&str> = cmd.split_whitespace().collect();
+    let first = *tokens.first()?;
+    let basename = std::path::Path::new(first)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(first);
+
+    if INTERPRETERS.contains(&basename) {
+        // First non-flag token after the interpreter name is the script path.
+        return tokens
+            .iter()
+            .skip(1)
+            .find(|t| !t.starts_with('-'))
+            .map(|s| s.to_string());
+    }
+
+    if first == "source" || first == "." {
+        return tokens.get(1).map(|s| s.to_string());
+    }
+
+    // Direct script execution: ./script.sh, /abs/path/script, or bare *.sh / *.bash
+    if first.starts_with("./")
+        || first.starts_with('/')
+        || first.ends_with(".sh")
+        || first.ends_with(".bash")
+    {
+        return Some(first.to_string());
+    }
+
+    None
 }
 
 fn run_forbid(args: &[String]) -> ExitCode {
@@ -472,8 +595,9 @@ fn init_hook(global: bool) -> Result<PathBuf> {
         .or_insert_with(|| serde_json::json!([]));
     let arr = pre.as_array_mut().context("PreToolUse is not an array")?;
 
-    let already = arr.iter().any(|e| {
-        e.get("hooks")
+    // Remove stale entries (old "Bash"-only installs or any entry referencing our command).
+    arr.retain(|e| {
+        !e.get("hooks")
             .and_then(|h| h.as_array())
             .map(|hs| {
                 hs.iter().any(|h| {
@@ -482,18 +606,139 @@ fn init_hook(global: bool) -> Result<PathBuf> {
             })
             .unwrap_or(false)
     });
-    if !already {
-        arr.push(serde_json::json!({
-            "matcher": "Bash",
-            "hooks": [{
-                "type": "command",
-                "command": cmd
-            }]
-        }));
-    }
+    arr.push(serde_json::json!({
+        "matcher": "",
+        "hooks": [{
+            "type": "command",
+            "command": cmd
+        }]
+    }));
 
     let pretty = serde_json::to_string_pretty(&value)?;
     std::fs::write(&path, pretty)
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---- extract_script_path ----
+
+    #[test]
+    fn extract_script_path_interpreter_with_script() {
+        assert_eq!(
+            extract_script_path("bash /tmp/deploy.sh"),
+            Some("/tmp/deploy.sh".to_string())
+        );
+        assert_eq!(
+            extract_script_path("sh ./run.sh"),
+            Some("./run.sh".to_string())
+        );
+        assert_eq!(
+            extract_script_path("zsh -x /opt/setup.sh"),
+            Some("/opt/setup.sh".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_script_path_interpreter_no_script() {
+        // "bash -c 'echo hi'" — first non-flag token is the inline string, not a path
+        assert_eq!(
+            extract_script_path("bash -c 'echo hi'"),
+            Some("'echo".to_string())
+        );
+        // bare interpreter with no arguments
+        assert_eq!(extract_script_path("bash"), None);
+    }
+
+    #[test]
+    fn extract_script_path_source_dot() {
+        assert_eq!(
+            extract_script_path("source /etc/profile"),
+            Some("/etc/profile".to_string())
+        );
+        assert_eq!(
+            extract_script_path(". ~/.bashrc"),
+            Some("~/.bashrc".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_script_path_direct_execution() {
+        assert_eq!(
+            extract_script_path("./deploy.sh"),
+            Some("./deploy.sh".to_string())
+        );
+        assert_eq!(
+            extract_script_path("/usr/local/bin/myscript"),
+            Some("/usr/local/bin/myscript".to_string())
+        );
+        assert_eq!(
+            extract_script_path("cleanup.sh"),
+            Some("cleanup.sh".to_string())
+        );
+        assert_eq!(
+            extract_script_path("setup.bash"),
+            Some("setup.bash".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_script_path_non_script_commands() {
+        assert_eq!(extract_script_path("ls -la"), None);
+        assert_eq!(extract_script_path("git status"), None);
+        assert_eq!(extract_script_path("kubectl get pods"), None);
+        assert_eq!(extract_script_path("cargo build --release"), None);
+    }
+
+    // ---- script_paths_in ----
+
+    #[test]
+    fn script_paths_in_single_segment() {
+        assert_eq!(script_paths_in("./deploy.sh"), vec!["./deploy.sh"]);
+    }
+
+    #[test]
+    fn script_paths_in_semicolon_separator() {
+        let paths = script_paths_in("echo start; ./deploy.sh; echo done");
+        assert_eq!(paths, vec!["./deploy.sh"]);
+    }
+
+    #[test]
+    fn script_paths_in_and_and_separator() {
+        let paths = script_paths_in("cd /tmp && bash setup.sh");
+        assert_eq!(paths, vec!["setup.sh"]);
+    }
+
+    #[test]
+    fn script_paths_in_pipe_separator() {
+        let paths = script_paths_in("cat file.txt | bash /tmp/process.sh");
+        assert_eq!(paths, vec!["/tmp/process.sh"]);
+    }
+
+    #[test]
+    fn script_paths_in_newline_separator() {
+        let paths = script_paths_in("echo hi\n./run.sh\necho bye");
+        assert_eq!(paths, vec!["./run.sh"]);
+    }
+
+    #[test]
+    fn script_paths_in_no_scripts() {
+        let paths = script_paths_in("kubectl get pods && helm list");
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn script_paths_in_multiple_scripts() {
+        let paths = script_paths_in("./a.sh; bash b.sh && source c.sh");
+        assert_eq!(paths, vec!["./a.sh", "b.sh", "c.sh"]);
+    }
+
+    #[test]
+    fn script_paths_in_skips_comments() {
+        let paths = script_paths_in("# this is a comment\n./deploy.sh");
+        assert_eq!(paths, vec!["./deploy.sh"]);
+    }
 }
