@@ -25,11 +25,13 @@ pub struct ForbidConfig {
     pub clusters: Vec<String>,
     #[serde(default)]
     pub namespaces: Vec<String>,
+    #[serde(default)]
+    pub databases: Vec<String>,
 }
 
 impl ForbidConfig {
     pub fn is_empty(&self) -> bool {
-        self.clusters.is_empty() && self.namespaces.is_empty()
+        self.clusters.is_empty() && self.namespaces.is_empty() && self.databases.is_empty()
     }
 }
 
@@ -151,6 +153,27 @@ pub fn remove_namespace(name: &str) -> Result<bool> {
     let before = cfg.namespaces.len();
     cfg.namespaces.retain(|n| n != name);
     let changed = cfg.namespaces.len() != before;
+    if changed {
+        save(&cfg)?;
+    }
+    Ok(changed)
+}
+
+pub fn add_database(host: &str) -> Result<bool> {
+    let mut cfg = load();
+    if cfg.databases.iter().any(|d| d == host) {
+        return Ok(false);
+    }
+    cfg.databases.push(host.to_string());
+    save(&cfg)?;
+    Ok(true)
+}
+
+pub fn remove_database(host: &str) -> Result<bool> {
+    let mut cfg = load();
+    let before = cfg.databases.len();
+    cfg.databases.retain(|d| d != host);
+    let changed = cfg.databases.len() != before;
     if changed {
         save(&cfg)?;
     }
@@ -370,12 +393,14 @@ mod tests {
         ForbidConfig {
             clusters: names.iter().map(|s| s.to_string()).collect(),
             namespaces: vec![],
+            databases: vec![],
         }
     }
     fn cfg_namespaces(names: &[&str]) -> ForbidConfig {
         ForbidConfig {
             clusters: vec![],
             namespaces: names.iter().map(|s| s.to_string()).collect(),
+            databases: vec![],
         }
     }
 
@@ -552,5 +577,32 @@ mod tests {
         )
         .expect("should block");
         assert_eq!(hit.value, "prod-eu");
+    }
+
+    #[test]
+    fn add_and_remove_database_modifies_config() {
+        let mut cfg = ForbidConfig::default();
+        cfg.databases.push("prod-db.example.com".to_string());
+        assert_eq!(cfg.databases.len(), 1);
+        cfg.databases.retain(|d| d != "prod-db.example.com");
+        assert!(cfg.databases.is_empty());
+    }
+
+    #[test]
+    fn forbid_config_is_empty_includes_databases() {
+        assert!(ForbidConfig::default().is_empty());
+        let cfg = ForbidConfig {
+            clusters: vec![],
+            namespaces: vec![],
+            databases: vec!["prod-db.example.com".to_string()],
+        };
+        assert!(!cfg.is_empty());
+    }
+
+    #[test]
+    fn forbid_config_deserializes_without_databases_field() {
+        let json = r#"{"clusters": ["prod-eu"], "namespaces": []}"#;
+        let cfg: ForbidConfig = serde_json::from_str(json).unwrap();
+        assert!(cfg.databases.is_empty());
     }
 }
