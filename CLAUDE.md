@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Inspired by the hook/init mechanics of [rtk-ai/rtk](https://github.com/rtk-ai/rtk), but deliberately minimal: blocking only — no rewriting, no proxying.
 
-**Blacklist status:** a curated mini-set of destructive `kubectl` operations (delete namespace, delete --all, delete crd, force-delete). Additional rules are added by the maintainer in `RAW_RULES` (`src/blacklist.rs`).
+**Blacklist status:** 18 rules across five categories — Kubernetes Destructive, Pod Access, Privilege Escalation, Service Disruption, and Helm. Additional rules are added by the maintainer in `RAW_RULES` (`src/blacklist.rs`).
 
 ## Workflow
 
@@ -31,13 +31,6 @@ The release pipeline is managed by [`cargo-dist`](https://opensource.axo.dev/car
 - The artifact layout (filenames, tarball/zip choice, checksums).
 
 The pipeline lives in `dist-workspace.toml`. Targets, installers, and install path are configured there. After any change, run `dist generate` to refresh `release.yml`.
-
-**What gets published per release** (verify with `dist plan` locally):
-
-- Five platform archives: `rsh-<triple>.tar.xz` for Unix targets, `rsh-x86_64-pc-windows-msvc.zip` for Windows. Each contains the binary plus `README.md` and `LICENSE`.
-- One `.sha256` file per archive, plus a combined `sha256.sum` covering all artifacts.
-- The shell and PowerShell installer scripts, which fetch the matching archive and **verify the SHA256 before extracting**.
-- A `source.tar.gz` of the tagged commit, also checksummed.
 
 **Releasing a new version:**
 
@@ -81,12 +74,13 @@ The binary dispatches on `argv[1]`:
 
 | Mode             | Trigger                          | Behavior                                                                                                  |
 |------------------|----------------------------------|-----------------------------------------------------------------------------------------------------------|
-| Hook (default)   | no/unknown `argv[1]`             | Reads PreToolUse JSON from stdin, extracts `tool_input.command`, runs it through the blacklist.           |
-| `check`          | `rsh check "<cmd>"`              | Checks the argument directly — useful for testing a rule locally.                                         |
+| Hook (default)   | no/unknown `argv[1]`             | Reads PreToolUse JSON from stdin, extracts `tool_input.command`, runs it through the blacklist and then the forbid check. |
+| `check`          | `rsh check "<cmd>"`              | Checks the argument directly against both pipelines — useful for testing a rule locally.                  |
 | `init`           | `rsh init [-g\|--global]`        | Patches `settings.json` (with `-g` in `~/.claude/`, otherwise project-local `./.claude/`) and runs `detect-aliases`. |
-| `list` / `rules` | `rsh list`                       | Prints all rules grouped by `category` (with `bin`, full expanded regex) and the alias map.               |
+| `list` / `rules` | `rsh list`                       | Prints all rules grouped by `category` (with `bin`, full expanded regex), the forbid lists, and the alias map. |
 | `alias`          | `rsh alias <cmd> <alias>`        | Adds an alias to `~/.config/rsh/aliases.json` (e.g. `rsh alias kubectl k`).                               |
 | `detect-aliases` | `rsh detect-aliases [cmd]`       | Scans `$PATH` for symlinks/hardlinks whose `realpath` matches `cmd` (or every bound rule binary).         |
+| `forbid`         | `rsh forbid ...`                 | Manages forbidden clusters and namespaces. Sub-commands: `cluster <name>`, `namespace <name>`, `remove cluster\|namespace <name>`, `list`. |
 | `help`           | `rsh help` / `-h` / `--help`     | Usage summary.                                                                                            |
 | `version`        | `rsh version` / `-v` / `--version` | Prints the Cargo package version.                                                                       |
 

@@ -2,7 +2,17 @@
 
 A lean Claude Code `PreToolUse` hook. Before every `Bash` tool call, `rsh` checks the command against a blacklist and blocks it on a match by exiting with a reason on stderr. Claude Code treats that as a refused tool call and surfaces the message back to the model.
 
-Out of the box, `rsh` ships with a small set of rules for destructive `kubectl` operations (`delete namespace`, `delete --all`, `delete crd`, force-delete). You can always see which rules are active with `rsh list`.
+Out of the box, `rsh` ships with 18 rules across five categories:
+
+| Category | Rules |
+|---|---|
+| Kubernetes — Destructive | delete namespace/ns, delete --all, delete crd, force-delete, delete pv/pvc, delete clusterrole/binding, delete node, delete deployment/statefulset/daemonset |
+| Kubernetes — Pod Access | exec shell, run --privileged, debug node/, attach, proxy, cp (local → pod) |
+| Kubernetes — Privilege Escalation | create clusterrolebinding --clusterrole=cluster-admin, apply -f http(s):// |
+| Kubernetes — Service Disruption | drain |
+| Helm | uninstall / delete |
+
+Run `rsh list` to see all active rules with their full patterns and reasons.
 
 ## Installation
 
@@ -37,7 +47,7 @@ If you prefer to install manually, the [releases page](https://github.com/thePer
 
 ```sh
 # Linux x86_64 example
-TAG=v0.1.0
+TAG=v0.2.0
 curl -fsSL -O https://github.com/thePermission/RustSecurityHook/releases/download/$TAG/rsh-x86_64-unknown-linux-musl.tar.xz
 curl -fsSL -O https://github.com/thePermission/RustSecurityHook/releases/download/$TAG/rsh-x86_64-unknown-linux-musl.tar.xz.sha256
 sha256sum -c rsh-x86_64-unknown-linux-musl.tar.xz.sha256
