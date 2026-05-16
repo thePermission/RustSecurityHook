@@ -6,29 +6,40 @@ Out of the box, `rsh` ships with a small set of rules for destructive `kubectl` 
 
 ## Installation
 
-### One-liner (Linux / macOS)
+All installers download a prebuilt binary from the latest [GitHub release](https://github.com/thePermission/RustSecurityHook/releases). No build tools or Rust toolchain required.
+
+### Linux / macOS
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/thePermission/RustSecurityHook/main/install.sh | sh
 ```
 
-The script downloads a prebuilt binary from the latest [GitHub release](https://github.com/thePermission/RustSecurityHook/releases) for your platform and places it at `~/.local/bin/rsh`. No build tools or Rust toolchain required.
+Installs to `~/.local/bin/rsh` by default.
 
-Supported platforms:
+### Windows (PowerShell)
 
-| OS    | Architecture                       |
-|-------|------------------------------------|
-| Linux | x86_64, aarch64                    |
-| macOS | x86_64, Apple Silicon (aarch64)    |
+```powershell
+irm https://raw.githubusercontent.com/thePermission/RustSecurityHook/main/install.ps1 | iex
+```
 
-Optional environment variables:
+Installs to `%LOCALAPPDATA%\Programs\rsh\rsh.exe` by default and adds that directory to your user `PATH` automatically (you may need to open a new terminal to pick it up).
+
+### Supported platforms
+
+| OS      | Architecture                       |
+|---------|------------------------------------|
+| Linux   | x86_64, aarch64                    |
+| macOS   | x86_64, Apple Silicon (aarch64)    |
+| Windows | x86_64                             |
+
+### Optional environment variables
 
 | Variable          | Effect                                                                    |
 |-------------------|---------------------------------------------------------------------------|
 | `RSH_VERSION`     | Install a specific release tag (e.g. `v0.2.0`). Default: latest release.  |
-| `RSH_INSTALL_DIR` | Install into a different directory. Default: `~/.local/bin`.              |
+| `RSH_INSTALL_DIR` | Install into a different directory.                                       |
 
-Make sure your install directory is on `$PATH` — the script warns you if it isn't.
+Make sure your install directory is on your `PATH` — the script warns you if it isn't.
 
 ### Verify
 

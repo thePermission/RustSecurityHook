@@ -4,12 +4,30 @@ use std::path::{Path, PathBuf};
 
 pub type AliasMap = BTreeMap<String, Vec<String>>;
 
+/// Best-effort cross-platform home-directory lookup: HOME on Unix,
+/// USERPROFILE on Windows. Returns `None` if neither is set.
+pub fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
 pub fn config_path() -> Result<PathBuf> {
     let base = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         PathBuf::from(xdg)
+    } else if cfg!(windows) {
+        // Convention on Windows: %APPDATA%\rsh\aliases.json
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            PathBuf::from(appdata)
+        } else {
+            home_dir()
+                .context("could not determine home directory")?
+                .join(".config")
+        }
     } else {
-        let home = std::env::var_os("HOME").context("HOME not set")?;
-        PathBuf::from(home).join(".config")
+        home_dir()
+            .context("could not determine home directory")?
+            .join(".config")
     };
     Ok(base.join("rsh").join("aliases.json"))
 }
@@ -103,17 +121,59 @@ pub fn detect_in_path(command: &str) -> Vec<String> {
 
 fn find_in_path(name: &str, path_var: &std::ffi::OsStr) -> Option<PathBuf> {
     for dir in std::env::split_paths(path_var) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
+        for ext in executable_extensions() {
+            let candidate = if ext.is_empty() {
+                dir.join(name)
+            } else {
+                dir.join(format!("{name}{ext}"))
+            };
+            if candidate.is_file() {
+                return Some(candidate);
+            }
         }
     }
     None
 }
 
+#[cfg(unix)]
+fn executable_extensions() -> Vec<String> {
+    vec![String::new()]
+}
+
+#[cfg(windows)]
+fn executable_extensions() -> Vec<String> {
+    // PATHEXT defines which extensions Windows considers executable.
+    // Include the empty string so plain `kubectl` (e.g. a hardlink without
+    // extension) is still found.
+    let raw = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+    let mut out = vec![String::new()];
+    for ext in raw.split(';') {
+        let trimmed = ext.trim();
+        if !trimmed.is_empty() {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
+
+#[cfg(unix)]
 fn is_executable(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     p.metadata()
         .map(|m| m.is_file() && (m.permissions().mode() & 0o111) != 0)
         .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn is_executable(p: &Path) -> bool {
+    if !p.is_file() {
+        return false;
+    }
+    let Some(ext) = p.extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    let needle = format!(".{}", ext.to_ascii_uppercase());
+    executable_extensions()
+        .iter()
+        .any(|e| !e.is_empty() && e.to_ascii_uppercase() == needle)
 }

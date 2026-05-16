@@ -242,8 +242,8 @@ fn run_check(command: &str) -> ExitCode {
 
 fn settings_path(global: bool) -> Result<PathBuf> {
     if global {
-        let home = std::env::var("HOME").context("HOME not set")?;
-        Ok(PathBuf::from(home).join(".claude/settings.json"))
+        let home = aliases::home_dir().context("could not determine home directory")?;
+        Ok(home.join(".claude/settings.json"))
     } else {
         let cwd = std::env::current_dir().context("getting current dir")?;
         Ok(cwd.join(".claude/settings.json"))
@@ -265,10 +265,21 @@ fn hook_command() -> String {
 
 fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
+    let candidates: &[&str] = if cfg!(windows) {
+        &["", ".exe", ".cmd", ".bat"]
+    } else {
+        &[""]
+    };
     for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
+        for ext in candidates {
+            let file = if ext.is_empty() {
+                dir.join(name)
+            } else {
+                dir.join(format!("{name}{ext}"))
+            };
+            if file.is_file() {
+                return Some(file);
+            }
         }
     }
     None

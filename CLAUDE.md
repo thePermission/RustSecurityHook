@@ -27,9 +27,9 @@ End-user installation goes through `README.md` and `install.sh` (one-liner: `cur
 End users install `rsh` via the one-liner above. That script does **not** require a Rust toolchain — it downloads a prebuilt binary from the GitHub release. For that to work, the release workflow must have run before publishing:
 
 - `.github/workflows/release.yml` triggers on tag push `v*.*.*` (or `workflow_dispatch` with a tag parameter).
-- Matrix build for four targets: `x86_64-unknown-linux-musl` (statically linked), `aarch64-unknown-linux-gnu` (via `cross`), `x86_64-apple-darwin`, `aarch64-apple-darwin`.
-- Each job tars `target/<triple>/release/rsh` as `rsh-<tag>-<triple>.tar.gz` (binary at the archive root) and attaches it to the release via `softprops/action-gh-release`.
-- `install.sh` resolves "latest" through the redirect from `/releases/latest` (avoiding the GitHub API rate limit) and downloads the matching asset.
+- Matrix build for five targets: `x86_64-unknown-linux-musl` (statically linked), `aarch64-unknown-linux-gnu` (via `cross`), `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`.
+- Unix targets are packaged as `rsh-<tag>-<triple>.tar.gz`, the Windows target as `rsh-<tag>-x86_64-pc-windows-msvc.zip`. Both formats contain the binary at the archive root (`rsh` or `rsh.exe`). Assets are attached via `softprops/action-gh-release`.
+- `install.sh` (Unix) and `install.ps1` (Windows) both resolve "latest" through the redirect from `/releases/latest` (avoiding the GitHub API rate limit) and download the matching asset. `install.ps1` additionally appends the install dir to the user `PATH` automatically.
 
 **Releasing a new version:**
 
@@ -77,7 +77,12 @@ Hook input schema (PreToolUse event from Claude Code): JSON with at least `tool_
 
 **Blacklist module** (`src/blacklist.rs`): the place to add rules. Rules are `(id, category, Option<bin>, sub_pattern, reason)` tuples in `RAW_RULES`. When `bin = Some(b)`, the LazyLock init assembles the full regex as `\b(?:b|alias1|alias2|...)\b<sub_pattern>` using aliases loaded from `~/.config/rsh/aliases.json` (module `src/aliases.rs`). When `bin = None`, `sub_pattern` is used as-is. Convention for kubectl-style sub-patterns: start with `\s[^|;&\n]*?\bVERB\b` so flags are allowed between the binary and the verb, and matches don't cross shell separators. When adding a rule: an entry in `RAW_RULES`, at least one positive and one negative test in the `tests` module. `id` slugs are stable — they appear in the block message shown to the model.
 
-**Alias module** (`src/aliases.rs`): persists a `BTreeMap<command, Vec<alias>>` as JSON at `~/.config/rsh/aliases.json` (respects `XDG_CONFIG_HOME`). `detect_in_path()` finds aliases by comparing `std::fs::canonicalize()` of every executable in `$PATH` against the target binary — catches symlinks and hardlinks, **not** wrapper scripts or renamed copies.
+**Alias module** (`src/aliases.rs`): persists a `BTreeMap<command, Vec<alias>>` as JSON. Storage location is platform-aware:
+
+- Unix: `$XDG_CONFIG_HOME/rsh/aliases.json` or `~/.config/rsh/aliases.json`.
+- Windows: `%XDG_CONFIG_HOME%/rsh/aliases.json` or `%APPDATA%\rsh\aliases.json`.
+
+`home_dir()` looks up `HOME` (Unix) and falls back to `USERPROFILE` (Windows). `detect_in_path()` finds aliases by comparing `std::fs::canonicalize()` of every executable in `$PATH` against the target binary — catches symlinks and hardlinks, **not** wrapper scripts or renamed copies. The executability check is `cfg`-gated: Unix uses the permission-bit, Windows matches the file extension against `PATHEXT`.
 
 **Exit-code contract:** only `0` (allow) and `2` (block, message on stderr). Avoid other exit codes — Claude Code interprets `1` as "hook error", and behavior varies by version, which is not the same as "explicit block".
 

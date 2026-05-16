@@ -25,15 +25,28 @@ jobs:
             os: ubuntu-latest
             cross: false
             apt: musl-tools
+            archive: tar.gz
+            bin: rsh
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             cross: true
+            archive: tar.gz
+            bin: rsh
           - target: x86_64-apple-darwin
             os: macos-latest
             cross: false
+            archive: tar.gz
+            bin: rsh
           - target: aarch64-apple-darwin
             os: macos-latest
             cross: false
+            archive: tar.gz
+            bin: rsh
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+            archive: zip
+            bin: rsh.exe
 
     steps:
       - uses: actions/checkout@v4
@@ -72,22 +85,37 @@ jobs:
             cargo build --release --target ${{ matrix.target }}
           fi
 
-      - name: Package
-        id: package
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        id: package_tar
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.ref }}"
           TARGET="${{ matrix.target }}"
           NAME="rsh-${TAG}-${TARGET}"
           mkdir -p "dist/${NAME}"
-          cp "target/${TARGET}/release/rsh" "dist/${NAME}/rsh"
-          # Tarball with binary at archive root (matches install.sh expectation).
-          tar -C "dist/${NAME}" -czf "dist/${NAME}.tar.gz" rsh
+          cp "target/${TARGET}/release/${{ matrix.bin }}" "dist/${NAME}/${{ matrix.bin }}"
+          tar -C "dist/${NAME}" -czf "dist/${NAME}.tar.gz" "${{ matrix.bin }}"
           echo "asset=dist/${NAME}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        id: package_zip
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.tag.outputs.ref }}"
+          $target = "${{ matrix.target }}"
+          $name = "rsh-$tag-$target"
+          New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
+          Copy-Item "target/$target/release/${{ matrix.bin }}" "dist/$name/${{ matrix.bin }}"
+          Compress-Archive -Path "dist/$name/${{ matrix.bin }}" -DestinationPath "dist/$name.zip" -Force
+          "asset=dist/$name.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Upload asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.ref }}
-          files: ${{ steps.package.outputs.asset }}
-          fail_on_unmatched_files: true
+          files: |
+            ${{ steps.package_tar.outputs.asset }}
+            ${{ steps.package_zip.outputs.asset }}
+          fail_on_unmatched_files: false
