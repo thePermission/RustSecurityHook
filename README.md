@@ -2,7 +2,7 @@
 
 A lean Claude Code `PreToolUse` hook. Before every `Bash` tool call, `rsh` checks the command against a blacklist and blocks it on a match by exiting with a reason on stderr. Claude Code treats that as a refused tool call and surfaces the message back to the model.
 
-Out of the box, `rsh` ships with 18 rules across five categories:
+Out of the box, `rsh` ships with 40 rules across eleven categories:
 
 | Category | Rules |
 |---|---|
@@ -10,7 +10,13 @@ Out of the box, `rsh` ships with 18 rules across five categories:
 | Kubernetes — Pod Access | exec shell, run --privileged, debug node/, attach, proxy, cp (local → pod) |
 | Kubernetes — Privilege Escalation | create clusterrolebinding --clusterrole=cluster-admin, apply -f http(s):// |
 | Kubernetes — Service Disruption | drain |
+| Kubernetes — Subprocess Bypass | kubectl delete/exec in subprocess argument lists |
 | Helm | uninstall / delete |
+| Helm — Subprocess Bypass | helm uninstall in subprocess argument lists |
+| SQL — Destructive DML | DELETE FROM, TRUNCATE |
+| SQL — Destructive DDL | DROP (table/db/schema/…), ALTER TABLE, CREATE TABLE/DATABASE/SCHEMA |
+| Docker — Volume Destruction | volume rm/prune, system prune --volumes/-a, rm -v, compose down/rm -v (plugin + legacy) |
+| Docker — Container/Image Cleanup | container prune, image prune/rm/rmi, rm, compose down (plugin + legacy) |
 
 Run `rsh list` to see all active rules with their full patterns and reasons.
 
