@@ -251,9 +251,9 @@ fn settings_path(global: bool) -> Result<PathBuf> {
 }
 
 fn hook_command() -> String {
-    // Bevorzugt den Namen "rsh", wenn das Binary im PATH erreichbar ist
-    // (Nutzer hat es z.B. via `cargo install --path .` installiert),
-    // sonst Fallback auf den absoluten Pfad des aktuell laufenden Binaries.
+    // Prefer the bare name "rsh" when the binary is reachable via $PATH
+    // (e.g. the user installed it through `cargo install --path .`).
+    // Otherwise fall back to the absolute path of the currently running binary.
     if which("rsh").is_some() {
         "rsh".to_string()
     } else {

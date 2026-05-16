@@ -2,82 +2,85 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Projekt
+> **Language policy:** all project artifacts (code, comments, docs, commit messages, CLI output, scripts) are written in English. The conversation language with the developer may differ, but anything that ends up in the repo is English-only.
 
-`rsh` (Rust Security Hook) ist ein Single-Binary CLI, das als Claude Code **PreToolUse-Hook** registriert wird und jeden geplanten `Bash`-Tool-Call gegen eine Blacklist regulärer Ausdrücke prüft. Trifft eine Regel, wird der Aufruf mit Exit-Code 2 und einer stderr-Begründung blockiert — Claude Code interpretiert das als "Tool-Call verweigert" und gibt die Meldung an das Modell zurück.
+## Project
 
-Inspiration ist die Hook-/Init-Mechanik von [rtk-ai/rtk](https://github.com/rtk-ai/rtk), aber `rsh` ist bewusst minimal: nur Blocking, kein Rewriting, kein Proxying.
+`rsh` (Rust Security Hook) is a single-binary CLI that registers itself as a Claude Code **PreToolUse hook** and screens every planned `Bash` tool call against a regex blacklist. On a match it exits with code `2` and a stderr reason — Claude Code interprets that as "tool call refused" and surfaces the message to the model.
 
-**Status der Blacklist**: kuratierter Mini-Satz an destruktiven `kubectl`-Operationen (delete namespace/crd, `--all`, force-delete). Weitere Regeln werden vom Nutzer in `RAW_RULES` (`src/blacklist.rs`) ergänzt.
+Inspired by the hook/init mechanics of [rtk-ai/rtk](https://github.com/rtk-ai/rtk), but deliberately minimal: blocking only — no rewriting, no proxying.
+
+**Blacklist status:** a curated mini-set of destructive `kubectl` operations (delete namespace, delete --all, delete crd, force-delete). Additional rules are added by the maintainer in `RAW_RULES` (`src/blacklist.rs`).
 
 ## Workflow
 
 ```bash
-cargo install --path .   # rsh in ~/.cargo/bin installieren (muss im PATH sein)
-rsh init -g              # Hook in ~/.claude/settings.json eintragen (global)
-rsh init                 # Alternativ: ./.claude/settings.json im aktuellen Projekt
+cargo install --path .   # install rsh into ~/.cargo/bin (must be on PATH)
+rsh init -g              # register the hook in ~/.claude/settings.json (global)
+rsh init                 # alternatively: ./.claude/settings.json in the current project
 ```
 
-## Release-Pipeline (für Endnutzer-Install)
+End-user installation goes through `README.md` and `install.sh` (one-liner: `curl -fsSL https://raw.githubusercontent.com/thePermission/RustSecurityHook/main/install.sh | sh`). That path is binary-only and does not require a Rust toolchain — see the release pipeline section below.
 
-Endnutzer installieren `rsh` über den One-Liner `curl -fsSL .../install.sh | sh`. Das Skript braucht **keine** Rust-Toolchain, sondern lädt ein prebuilt Binary aus dem GitHub-Release. Damit das funktioniert, muss vor jeder Veröffentlichung der Release-Workflow durchlaufen sein:
+## Release pipeline (for end-user install)
 
-- `.github/workflows/release.yml` triggert auf Tag-Push `v*.*.*` (oder `workflow_dispatch` mit Tag-Parameter).
-- Matrix-Build für vier Targets: `x86_64-unknown-linux-musl` (statisch), `aarch64-unknown-linux-gnu` (per `cross`), `x86_64-apple-darwin`, `aarch64-apple-darwin`.
-- Jeder Job tarrt `target/<triple>/release/rsh` als `rsh-<tag>-<triple>.tar.gz` (Binary an Archive-Root) und hängt es per `softprops/action-gh-release` an den Release.
-- `install.sh` löst "latest" über die Redirect-URL von `/releases/latest` auf (vermeidet die API-Rate-Limit-Falle) und lädt das passende Asset.
+End users install `rsh` via the one-liner above. That script does **not** require a Rust toolchain — it downloads a prebuilt binary from the GitHub release. For that to work, the release workflow must have run before publishing:
 
-**Release-Workflow**:
+- `.github/workflows/release.yml` triggers on tag push `v*.*.*` (or `workflow_dispatch` with a tag parameter).
+- Matrix build for four targets: `x86_64-unknown-linux-musl` (statically linked), `aarch64-unknown-linux-gnu` (via `cross`), `x86_64-apple-darwin`, `aarch64-apple-darwin`.
+- Each job tars `target/<triple>/release/rsh` as `rsh-<tag>-<triple>.tar.gz` (binary at the archive root) and attaches it to the release via `softprops/action-gh-release`.
+- `install.sh` resolves "latest" through the redirect from `/releases/latest` (avoiding the GitHub API rate limit) and downloads the matching asset.
+
+**Releasing a new version:**
 
 ```sh
-# Version in Cargo.toml bumpen, dann:
+# bump version in Cargo.toml, then:
 git tag v0.X.Y
 git push --tags
-# Actions baut + publiziert; install.sh findet danach automatisch das neueste Asset.
+# Actions builds and publishes; install.sh picks up the new asset automatically.
 ```
 
-Bei Änderungen am Asset-Namen, an unterstützten Targets oder am Install-Pfad: `install.sh`, `release.yml` und README-Tabelle synchron halten.
-
-`init` ist idempotent (Dedup über das `command`-Feld). Wenn `rsh` im PATH liegt, wird `"rsh"` als Hook-Command eingetragen — sonst der absolute Pfad des aktuell laufenden Binaries. Empfohlen ist `cargo install --path .` zuerst, damit ein erneutes Build des Repos nicht den Hook bricht.
+When changing the asset name, supported targets, or install path, keep `install.sh`, `release.yml`, and the README platform table in sync.
 
 ## Build / Test
 
 ```bash
-cargo build --release        # Release-Binary unter target/release/rsh
-cargo test                   # Unit-Tests (in src/blacklist.rs)
-cargo test <name>            # einzelner Test, z.B. cargo test empty_blacklist_allows_everything
-rsh check "rm -rf /"         # Blacklist gegen literalen Command-String prüfen
+cargo build --release           # release binary at target/release/rsh
+cargo test                      # unit tests live in src/blacklist.rs
+cargo test <name>               # single test, e.g. cargo test blocks_delete_namespace
+rsh check "kubectl delete ns x" # run the blacklist against a literal command
 ```
 
-Manuelle Hook-Simulation (genau so ruft Claude Code das Binary auf):
+Manual hook simulation (this is exactly how Claude Code invokes the binary):
 
 ```bash
 echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | rsh
-# exit 0 → durchlassen (leere Blacklist)
+# exit 0 → allowed
 ```
 
-## Architektur
+## Architecture
 
-Das Binary unterscheidet seinen Modus anhand von `argv[1]`:
+The binary dispatches on `argv[1]`:
 
-| Modus | Trigger | Verhalten |
-|---|---|---|
-| Hook (default) | kein/unbekanntes argv[1] | Liest PreToolUse-JSON von stdin, extrahiert `tool_input.command`, läuft durch Blacklist |
-| `check` | `rsh check "<cmd>"` | Prüft das Argument direkt — fürs lokale Testen einer Regel |
-| `init` | `rsh init [-g\|--global]` | Patcht `settings.json` (mit `-g` global in `~/.claude/`, sonst projektlokal `./.claude/`) |
-| `list` | `rsh list` (alias `rules`) | Listet alle Regeln (id, reason, bin, vollständig expandierte Regex) sowie die Alias-Map |
-| `alias` | `rsh alias <cmd> <alias>` | Trägt einen Alias in `~/.config/rsh/aliases.json` ein (z.B. `rsh alias kubectl k`) |
-| `detect-aliases` | `rsh detect-aliases [cmd]` | Scannt `$PATH` nach Symlinks/Hardlinks, die per `realpath` auf `cmd` (oder alle bin-Regeln) auflösen, und ergänzt die Alias-Map |
-| `help` | `rsh help` / `-h` / `--help` | Usage-Übersicht |
+| Mode             | Trigger                          | Behavior                                                                                                  |
+|------------------|----------------------------------|-----------------------------------------------------------------------------------------------------------|
+| Hook (default)   | no/unknown `argv[1]`             | Reads PreToolUse JSON from stdin, extracts `tool_input.command`, runs it through the blacklist.           |
+| `check`          | `rsh check "<cmd>"`              | Checks the argument directly — useful for testing a rule locally.                                         |
+| `init`           | `rsh init [-g\|--global]`        | Patches `settings.json` (with `-g` in `~/.claude/`, otherwise project-local `./.claude/`) and runs `detect-aliases`. |
+| `list` / `rules` | `rsh list`                       | Prints all rules grouped by `category` (with `bin`, full expanded regex) and the alias map.               |
+| `alias`          | `rsh alias <cmd> <alias>`        | Adds an alias to `~/.config/rsh/aliases.json` (e.g. `rsh alias kubectl k`).                               |
+| `detect-aliases` | `rsh detect-aliases [cmd]`       | Scans `$PATH` for symlinks/hardlinks whose `realpath` matches `cmd` (or every bound rule binary).         |
+| `help`           | `rsh help` / `-h` / `--help`     | Usage summary.                                                                                            |
+| `version`        | `rsh version` / `-v` / `--version` | Prints the Cargo package version.                                                                       |
 
-Hook-Input-Schema (Claude Code PreToolUse-Event): JSON mit mindestens `tool_name` (string) und `tool_input` (object). Für den `Bash`-Tool steckt der auszuführende Befehl in `tool_input.command`. Bei anderen Tool-Namen oder leerem/ungültigem stdin lässt `rsh` den Call durchgehen (Exit 0) — Fail-Open ist Absicht, damit ein Crash im Hook nicht die ganze Session lahmlegt.
+Hook input schema (PreToolUse event from Claude Code): JSON with at least `tool_name` (string) and `tool_input` (object). For the `Bash` tool the command lives in `tool_input.command`. For other tool names, or empty/invalid stdin, `rsh` lets the call through (exit 0). This fail-open behavior is intentional — a crash in the hook must not lock up the whole session.
 
-**Blacklist-Modul** (`src/blacklist.rs`): zentrale Stelle für neue Regeln. Regeln sind `(id, Option<bin>, sub_pattern, reason)`-Tupel in `RAW_RULES`. Bei `Some(bin)` wird zur LazyLock-Init die volle Regex als `\b(?:bin|alias1|alias2|...)\b<sub_pattern>` zusammengesetzt, wobei die Aliases aus `~/.config/rsh/aliases.json` (Modul `src/aliases.rs`) gezogen werden. Bei `None` wird `sub_pattern` direkt verwendet. Konvention für die Sub-Pattern bei kubectl-ähnlichen Tools: mit `\s[^|;&\n]*?\bVERB\b` beginnen, damit Flags zwischen Binary und Verb erlaubt sind und kein Match über Shell-Pipes/Semikolons hinweg passiert. Beim Hinzufügen einer Regel: Eintrag in `RAW_RULES`, mindestens je ein Treffer- und ein Negativ-Test im `tests`-Modul. `id`-Slugs sind stabil — sie tauchen in den Block-Meldungen auf.
+**Blacklist module** (`src/blacklist.rs`): the place to add rules. Rules are `(id, category, Option<bin>, sub_pattern, reason)` tuples in `RAW_RULES`. When `bin = Some(b)`, the LazyLock init assembles the full regex as `\b(?:b|alias1|alias2|...)\b<sub_pattern>` using aliases loaded from `~/.config/rsh/aliases.json` (module `src/aliases.rs`). When `bin = None`, `sub_pattern` is used as-is. Convention for kubectl-style sub-patterns: start with `\s[^|;&\n]*?\bVERB\b` so flags are allowed between the binary and the verb, and matches don't cross shell separators. When adding a rule: an entry in `RAW_RULES`, at least one positive and one negative test in the `tests` module. `id` slugs are stable — they appear in the block message shown to the model.
 
-**Alias-Modul** (`src/aliases.rs`): persistiert eine `BTreeMap<command, Vec<alias>>` als JSON in `~/.config/rsh/aliases.json` (respektiert `XDG_CONFIG_HOME`). `detect_in_path()` erkennt Aliase über `std::fs::canonicalize()`-Vergleich aller ausführbaren PATH-Einträge mit dem Ziel-Binary — fängt Symlinks und Hardlinks, **nicht** Wrapper-Skripte oder umbenannte Kopien.
+**Alias module** (`src/aliases.rs`): persists a `BTreeMap<command, Vec<alias>>` as JSON at `~/.config/rsh/aliases.json` (respects `XDG_CONFIG_HOME`). `detect_in_path()` finds aliases by comparing `std::fs::canonicalize()` of every executable in `$PATH` against the target binary — catches symlinks and hardlinks, **not** wrapper scripts or renamed copies.
 
-**Exit-Code-Contract**: Nur 0 (durchlassen) und 2 (blockieren, Meldung in stderr). Andere Exit-Codes vermeiden, weil Claude Code 1 als "Hook-Fehler" interpretiert, was Verhalten je nach Version anders ist als "explizit blockiert".
+**Exit-code contract:** only `0` (allow) and `2` (block, message on stderr). Avoid other exit codes — Claude Code interprets `1` as "hook error", and behavior varies by version, which is not the same as "explicit block".
 
 ## Edition
 
-`Cargo.toml` nutzt `edition = "2024"` (von `cargo init` gesetzt). Erfordert einen entsprechend aktuellen Rust-Toolchain — installiert via `rustup` (siehe `~/.cargo/env`).
+`Cargo.toml` uses `edition = "2024"` (set by `cargo init`). Requires a current stable Rust toolchain — installed via `rustup` (see `~/.cargo/env`).
