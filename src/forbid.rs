@@ -9,7 +9,7 @@
 //! equivalent, mirroring `aliases::config_path`) as:
 //!
 //! ```json
-//! { "clusters": ["my-prod-eu"], "namespaces": ["kube-system"] }
+//! { "clusters": ["my-prod-eu"], "namespaces": ["kube-system"], "databases": ["prod-db.example.com"] }
 //! ```
 
 use anyhow::{Context, Result};
@@ -580,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn add_and_remove_database_modifies_config() {
+    fn forbid_config_databases_field_mutates_as_expected() {
         let mut cfg = ForbidConfig::default();
         cfg.databases.push("prod-db.example.com".to_string());
         assert_eq!(cfg.databases.len(), 1);
