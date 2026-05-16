@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Inspiration ist die Hook-/Init-Mechanik von [rtk-ai/rtk](https://github.com/rtk-ai/rtk), aber `rsh` ist bewusst minimal: nur Blocking, kein Rewriting, kein Proxying.
 
-**Status der Blacklist**: aktuell leer. Regeln werden bewusst vom Nutzer manuell ergänzt — `RAW_RULES` in `src/blacklist.rs` ist absichtlich nicht mit Defaults vorgefüllt.
+**Status der Blacklist**: kuratierter Mini-Satz an destruktiven `kubectl`-Operationen (delete namespace/crd, `--all`, force-delete). Weitere Regeln werden vom Nutzer in `RAW_RULES` (`src/blacklist.rs`) ergänzt.
 
 ## Workflow
 
@@ -47,12 +47,16 @@ Das Binary unterscheidet seinen Modus anhand von `argv[1]`:
 | Hook (default) | kein/unbekanntes argv[1] | Liest PreToolUse-JSON von stdin, extrahiert `tool_input.command`, läuft durch Blacklist |
 | `check` | `rsh check "<cmd>"` | Prüft das Argument direkt — fürs lokale Testen einer Regel |
 | `init` | `rsh init [-g\|--global]` | Patcht `settings.json` (mit `-g` global in `~/.claude/`, sonst projektlokal `./.claude/`) |
-| `list` | `rsh list` (alias `rules`) | Listet alle in `RAW_RULES` konfigurierten Regeln (id, reason, pattern) |
+| `list` | `rsh list` (alias `rules`) | Listet alle Regeln (id, reason, bin, vollständig expandierte Regex) sowie die Alias-Map |
+| `alias` | `rsh alias <cmd> <alias>` | Trägt einen Alias in `~/.config/rsh/aliases.json` ein (z.B. `rsh alias kubectl k`) |
+| `detect-aliases` | `rsh detect-aliases [cmd]` | Scannt `$PATH` nach Symlinks/Hardlinks, die per `realpath` auf `cmd` (oder alle bin-Regeln) auflösen, und ergänzt die Alias-Map |
 | `help` | `rsh help` / `-h` / `--help` | Usage-Übersicht |
 
 Hook-Input-Schema (Claude Code PreToolUse-Event): JSON mit mindestens `tool_name` (string) und `tool_input` (object). Für den `Bash`-Tool steckt der auszuführende Befehl in `tool_input.command`. Bei anderen Tool-Namen oder leerem/ungültigem stdin lässt `rsh` den Call durchgehen (Exit 0) — Fail-Open ist Absicht, damit ein Crash im Hook nicht die ganze Session lahmlegt.
 
-**Blacklist-Modul** (`src/blacklist.rs`): zentrale Stelle für neue Regeln. Regeln sind `(id, regex, reason)`-Tripel in `RAW_RULES`, werden bei der ersten Nutzung in eine `LazyLock<Vec<Rule>>` mit vorkompilierten `Regex` überführt. Beim Hinzufügen einer Regel: Eintrag in `RAW_RULES`, zugehöriger Test im `tests`-Modul derselben Datei (positiv: blockiert; negativ: harmlose Variante geht durch). Stabile `id`-Slugs nicht ändern, sobald gesetzt — sie tauchen in den Block-Meldungen auf.
+**Blacklist-Modul** (`src/blacklist.rs`): zentrale Stelle für neue Regeln. Regeln sind `(id, Option<bin>, sub_pattern, reason)`-Tupel in `RAW_RULES`. Bei `Some(bin)` wird zur LazyLock-Init die volle Regex als `\b(?:bin|alias1|alias2|...)\b<sub_pattern>` zusammengesetzt, wobei die Aliases aus `~/.config/rsh/aliases.json` (Modul `src/aliases.rs`) gezogen werden. Bei `None` wird `sub_pattern` direkt verwendet. Konvention für die Sub-Pattern bei kubectl-ähnlichen Tools: mit `\s[^|;&\n]*?\bVERB\b` beginnen, damit Flags zwischen Binary und Verb erlaubt sind und kein Match über Shell-Pipes/Semikolons hinweg passiert. Beim Hinzufügen einer Regel: Eintrag in `RAW_RULES`, mindestens je ein Treffer- und ein Negativ-Test im `tests`-Modul. `id`-Slugs sind stabil — sie tauchen in den Block-Meldungen auf.
+
+**Alias-Modul** (`src/aliases.rs`): persistiert eine `BTreeMap<command, Vec<alias>>` als JSON in `~/.config/rsh/aliases.json` (respektiert `XDG_CONFIG_HOME`). `detect_in_path()` erkennt Aliase über `std::fs::canonicalize()`-Vergleich aller ausführbaren PATH-Einträge mit dem Ziel-Binary — fängt Symlinks und Hardlinks, **nicht** Wrapper-Skripte oder umbenannte Kopien.
 
 **Exit-Code-Contract**: Nur 0 (durchlassen) und 2 (blockieren, Meldung in stderr). Andere Exit-Codes vermeiden, weil Claude Code 1 als "Hook-Fehler" interpretiert, was Verhalten je nach Version anders ist als "explizit blockiert".
 

@@ -1,3 +1,4 @@
+mod aliases;
 mod blacklist;
 
 use anyhow::{Context, Result};
@@ -22,6 +23,7 @@ fn main() -> ExitCode {
             match init_hook(global) {
                 Ok(path) => {
                     eprintln!("rsh hook installed in {}", path.display());
+                    let _ = run_detect(&rule_bins());
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
@@ -37,6 +39,34 @@ fn main() -> ExitCode {
         Some("list") | Some("rules") => {
             list_rules();
             ExitCode::SUCCESS
+        }
+        Some("alias") => match (args.get(2), args.get(3)) {
+            (Some(command), Some(alias)) => match aliases::add(command, alias) {
+                Ok((path, true)) => {
+                    eprintln!("added alias {alias} → {command} in {}", path.display());
+                    ExitCode::SUCCESS
+                }
+                Ok((path, false)) => {
+                    eprintln!("alias {alias} → {command} already present ({})", path.display());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("alias failed: {e:#}");
+                    ExitCode::FAILURE
+                }
+            },
+            _ => {
+                eprintln!("usage: rsh alias <command> <alias>");
+                ExitCode::FAILURE
+            }
+        },
+        Some("detect-aliases") => {
+            let targets: Vec<String> = if args.len() > 2 {
+                args[2..].to_vec()
+            } else {
+                rule_bins()
+            };
+            run_detect(&targets)
         }
         Some("--help") | Some("-h") | Some("help") => {
             print_help();
@@ -55,24 +85,89 @@ fn print_help() {
            rsh init [-g|--global]    Register rsh as PreToolUse hook in settings.json\n\
                                      (-g writes to ~/.claude/settings.json, otherwise ./.claude/settings.json)\n\
            rsh check \"<command>\"    Run the blacklist against a literal command string\n\
-           rsh list                  Show all configured blacklist rules\n\
+           rsh list                  Show all configured blacklist rules and aliases\n\
+           rsh alias <cmd> <alias>   Register that <alias> on this system points to <cmd>\n\
+                                     (e.g. `rsh alias kubectl k` if `k` is a symlink/wrapper for kubectl)\n\
+           rsh detect-aliases [cmd]  Auto-detect aliases by scanning $PATH for symlinks/hardlinks.\n\
+                                     With no argument, scans all commands referenced by rules.\n\
            rsh help                  Show this message"
     );
 }
 
 fn list_rules() {
     let rules = blacklist::rules();
+    let aliases = aliases::load();
+
     if rules.is_empty() {
         println!("(no blacklist rules configured)");
-        return;
+    } else {
+        println!("{} rule(s) configured:\n", rules.len());
+        for r in rules {
+            println!("  [{}]", r.id);
+            println!("    reason:  {}", r.reason);
+            if let Some(b) = r.bin {
+                println!("    binary:  {b}");
+            }
+            println!("    pattern: {}", r.effective_pattern);
+            println!();
+        }
     }
-    println!("{} rule(s) configured:\n", rules.len());
-    for r in rules {
-        println!("  [{}]", r.id);
-        println!("    reason:  {}", r.reason);
-        println!("    pattern: {}", r.pattern);
-        println!();
+
+    if aliases.is_empty() {
+        println!("aliases: (none — see `rsh alias` and `rsh detect-aliases`)");
+    } else {
+        println!("aliases:");
+        for (cmd, list) in &aliases {
+            println!("  {cmd} ← {}", list.join(", "));
+        }
     }
+}
+
+fn rule_bins() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for r in blacklist::rules() {
+        if let Some(b) = r.bin {
+            let s = b.to_string();
+            if !out.contains(&s) {
+                out.push(s);
+            }
+        }
+    }
+    out
+}
+
+fn run_detect(targets: &[String]) -> ExitCode {
+    if targets.is_empty() {
+        eprintln!("no targets to scan (no rules with a bound binary)");
+        return ExitCode::SUCCESS;
+    }
+    let mut any_added = false;
+    for cmd in targets {
+        let found = aliases::detect_in_path(cmd);
+        if found.is_empty() {
+            eprintln!("no aliases found for {cmd}");
+            continue;
+        }
+        for alias in &found {
+            match aliases::add(cmd, alias) {
+                Ok((_, true)) => {
+                    eprintln!("detected alias {alias} → {cmd}");
+                    any_added = true;
+                }
+                Ok((_, false)) => {
+                    eprintln!("alias {alias} → {cmd} (already known)");
+                }
+                Err(e) => {
+                    eprintln!("could not save alias {alias} → {cmd}: {e:#}");
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+    }
+    if !any_added {
+        eprintln!("(no new aliases added)");
+    }
+    ExitCode::SUCCESS
 }
 
 fn run_hook() -> ExitCode {

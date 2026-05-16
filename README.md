@@ -4,7 +4,24 @@ Ein minimaler Claude-Code-`PreToolUse`-Hook in Rust. Vor jedem `Bash`-Tool-Call 
 
 Inspiriert von der Hook-/Init-Mechanik von [rtk-ai/rtk](https://github.com/rtk-ai/rtk), aber bewusst auf einen einzigen Zweck reduziert: Befehle blockieren. Kein Rewriting, kein Proxying.
 
-> **Hinweis:** Die ausgelieferte Blacklist ist **leer**. Regeln pflegst du selbst in `src/blacklist.rs` ein – siehe [Eigene Regeln hinzufügen](#eigene-regeln-hinzufügen).
+> **Hinweis:** Die ausgelieferte Blacklist ist absichtlich klein und enthält aktuell nur ein paar destruktive `kubectl`-Operationen (`delete namespace`, `delete --all`, `delete crd`, force-delete). Eigene Regeln pflegst du in `src/blacklist.rs` ein – siehe [Eigene Regeln hinzufügen](#eigene-regeln-hinzufügen).
+
+## Aliase erkennen / pflegen
+
+Regeln mit einem `bin`-Feld (z.B. `kubectl`) matchen nicht nur das exakte Binary, sondern auch alle bekannten Aliase. Aliase liegen in `~/.config/rsh/aliases.json`. Es gibt zwei Wege, sie einzutragen:
+
+```sh
+rsh alias kubectl k         # manuell: "k" auf diesem System ist ein Alias für kubectl
+rsh detect-aliases          # automatisch: scannt $PATH nach Symlinks/Hardlinks auf kubectl
+rsh detect-aliases helm     # gezielter Scan
+```
+
+`rsh init` ruft `detect-aliases` für alle Regel-Binaries automatisch mit auf.
+
+**Was erkannt wird**: Symlinks und Hardlinks im `$PATH`, die per `realpath()` auf dasselbe Binary auflösen.
+**Was nicht erkannt wird**: Wrapper-Skripte (Shell-Scripte, die `kubectl` aufrufen), Shell-Aliase aus rc-Files (`alias k=kubectl` in `.bashrc` — werden in `bash -c` ohnehin nicht expandiert), umbenannte Kopien des Binaries (`cp $(which kubectl) /tmp/foo`). Determinierte Umgehung bleibt mit einer reinen Regex-Blacklist möglich; das ist eine Designgrenze.
+
+Mit `rsh list` siehst du jederzeit, welche Aliase aktiv in die Patterns eingebaut werden.
 
 ## Installation
 
@@ -70,15 +87,25 @@ Exit-Codes:
 
 ## Eigene Regeln hinzufügen
 
-Regeln liegen in [`src/blacklist.rs`](src/blacklist.rs) im `RAW_RULES`-Array als `(id, regex, reason)`-Tripel:
+Regeln liegen in [`src/blacklist.rs`](src/blacklist.rs) im `RAW_RULES`-Array als `(id, bin, sub_pattern, reason)`-Tupel:
 
 ```rust
-const RAW_RULES: &[(&str, &str, &str)] = &[
+const RAW_RULES: &[(&str, Option<&str>, &str, &str)] = &[
+    // bin = Some("kubectl") → die Regex wird zu \b(?:kubectl|<alias>...)\b<sub_pattern>
+    ("k8s-delete-namespace",
+     Some("kubectl"),
+     r"\s[^|;&\n]*?\bdelete\s+(ns|namespace|namespaces)\b",
+     "Deletes a Kubernetes namespace ..."),
+
+    // bin = None → sub_pattern wird unverändert verwendet
     ("rm-rf-root",
+     None,
      r"\brm\s+(-[a-zA-Z]*[rRfF][a-zA-Z]*\s+)+/(\s|$)",
      "Recursive deletion of root"),
 ];
 ```
+
+Der `[^|;&\n]*?`-Block zwischen Binary und Verb erlaubt Flags und Optionen (z.B. `kubectl --context=prod delete ...`) und stoppt an Shell-Trennern (`|`, `;`, `&`, Zeilenende), damit kein Match über Pipes hinweg passiert.
 
 Workflow zum Erweitern:
 
