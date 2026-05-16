@@ -311,6 +311,8 @@ pub fn check_with(
 
 // ---- database check -----------------------------------------------------
 
+// sqlite3 doesn't use -h/--host or connection URLs; check_db always
+// returns None for it. Listed for future-proofing.
 const SQL_CLIENTS: &[&str] = &["mysql", "mariadb", "psql", "sqlite3", "sqlcmd", "mssql-cli"];
 
 fn extract_db_host(command: &str) -> Option<String> {
@@ -330,6 +332,7 @@ fn extract_db_host(command: &str) -> Option<String> {
     extract_flag(command, &["-h", "--host"])
 }
 
+/// Checks whether a SQL client command targets a forbidden database hostname.
 pub fn check_db(command: &str, cfg: &ForbidConfig) -> Option<Hit> {
     if cfg.databases.is_empty() {
         return None;
@@ -343,6 +346,10 @@ pub fn check_db(command: &str, cfg: &ForbidConfig) -> Option<Hit> {
         .strip_suffix(".exe")
         .or_else(|| basename.strip_suffix(".EXE"))
         .unwrap_or(basename);
+    // Known limitation: `env VAR=val psql ...` and inline var assignments
+    // (`PGPASSWORD=x psql ...`) bypass this check because the first token is
+    // not the SQL client binary. This mirrors the existing kubectl/helm bypass
+    // for the same pattern and is an accepted trade-off.
     if !SQL_CLIENTS.contains(&basename) {
         return None;
     }
