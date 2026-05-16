@@ -279,6 +279,56 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         r"\s[^|;&\n]*?\brm\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*(?:\s|$))",
         "Removes container and its anonymous volumes (-v) — irreversible data loss",
     ),
+    // ---- Docker — Container/Image Cleanup -----------------------------
+    (
+        "docker-container-prune",
+        "Docker — Container/Image Cleanup",
+        Some("docker"),
+        r"\s[^|;&\n]*?\bcontainer\s+prune\b",
+        "Removes all stopped containers in bulk",
+    ),
+    (
+        "docker-image-prune",
+        "Docker — Container/Image Cleanup",
+        Some("docker"),
+        r"\s[^|;&\n]*?\bimage\s+prune\b",
+        "Removes dangling or all unused images",
+    ),
+    (
+        "docker-image-rm",
+        "Docker — Container/Image Cleanup",
+        Some("docker"),
+        r"\s[^|;&\n]*?\bimage\s+(?:rm|remove)\b",
+        "Removes images by name or ID",
+    ),
+    (
+        "docker-rmi",
+        "Docker — Container/Image Cleanup",
+        Some("docker"),
+        r"\s[^|;&\n]*?\brmi\b\s+\S",
+        "Removes images (legacy rmi command)",
+    ),
+    (
+        "docker-rm",
+        "Docker — Container/Image Cleanup",
+        Some("docker"),
+        r"\s[^|;&\n]*?\brm\b\s+\S",
+        "Removes one or more containers",
+    ),
+    (
+        "compose-down",
+        "Docker — Container/Image Cleanup",
+        Some("docker"),
+        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\bdown\b",
+        "Stops and removes all service containers (volumes kept without -v)",
+    ),
+    (
+        "compose-legacy-down",
+        "Docker — Container/Image Cleanup",
+        Some("docker-compose"),
+        r"\s[^|;&\n]*?\bdown\b",
+        "Stops and removes all service containers (volumes kept without -v)",
+    ),
 ];
 
 static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
@@ -591,9 +641,6 @@ mod tests {
         assert!(blocks("docker compose down --volumes"));
         assert!(blocks("docker compose -f compose.yml down -v"));
         assert_eq!(hit_id("docker compose down -v"), Some("compose-down-volumes"));
-        assert!(!blocks("docker compose down --remove-orphans"));
-        assert!(!blocks("docker compose down --service-ports"));
-        assert!(!blocks("docker compose down"));
     }
 
     #[test]
@@ -605,8 +652,6 @@ mod tests {
             hit_id("docker-compose down -v"),
             Some("compose-legacy-down-volumes")
         );
-        assert!(!blocks("docker-compose down --remove-orphans"));
-        assert!(!blocks("docker-compose down"));
     }
 
     #[test]
@@ -627,6 +672,70 @@ mod tests {
             hit_id("docker-compose rm -v"),
             Some("compose-legacy-rm-volumes")
         );
+    }
+
+    // ---- Docker — Container/Image Cleanup ----
+
+    #[test]
+    fn blocks_docker_container_prune() {
+        assert!(blocks("docker container prune"));
+        assert!(blocks("docker container prune -f"));
+        assert!(!blocks("docker container ls"));
+        assert!(!blocks("docker container inspect foo"));
+    }
+
+    #[test]
+    fn blocks_docker_image_prune() {
+        assert!(blocks("docker image prune"));
+        assert!(blocks("docker image prune -a"));
+        assert!(blocks("docker image prune -f"));
+        assert!(!blocks("docker image ls"));
+        assert!(!blocks("docker image inspect foo"));
+    }
+
+    #[test]
+    fn blocks_docker_image_rm() {
+        assert!(blocks("docker image rm myimage:latest"));
+        assert!(blocks("docker image remove myimage"));
+        assert!(!blocks("docker image ls"));
+        assert_eq!(hit_id("docker image rm myimage"), Some("docker-image-rm"));
+    }
+
+    #[test]
+    fn blocks_docker_rmi() {
+        assert!(blocks("docker rmi myimage:latest"));
+        assert!(blocks("docker rmi myimage1 myimage2"));
+        assert!(blocks("docker rmi -f myimage"));
+        assert!(!blocks("docker run myimage"));
+        assert_eq!(hit_id("docker rmi myimage"), Some("docker-rmi"));
+    }
+
+    #[test]
+    fn blocks_docker_rm() {
+        assert!(blocks("docker rm mycontainer"));
+        assert!(blocks("docker rm -f mycontainer"));
+        assert_eq!(hit_id("docker rm mycontainer"), Some("docker-rm"));
+        assert!(!blocks("docker run myimage"));
+        assert!(!blocks("docker ps"));
+        assert!(!blocks("docker start mycontainer"));
+    }
+
+    #[test]
+    fn blocks_compose_down() {
+        assert!(blocks("docker compose down"));
+        assert!(blocks("docker compose -f compose.yml down"));
+        assert_eq!(hit_id("docker compose down"), Some("compose-down"));
+        assert!(!blocks("docker compose up"));
+        assert!(!blocks("docker compose ps"));
+    }
+
+    #[test]
+    fn blocks_compose_legacy_down() {
+        assert!(blocks("docker-compose down"));
+        assert!(blocks("docker-compose -f docker-compose.yml down"));
+        assert_eq!(hit_id("docker-compose down"), Some("compose-legacy-down"));
+        assert!(!blocks("docker-compose up"));
+        assert!(!blocks("docker-compose ps"));
     }
 
     // ---- General negative ----
@@ -686,11 +795,18 @@ mod tests {
         let mut ids: Vec<&str> = rules().iter().map(|r| r.id).collect();
         ids.sort();
         let expected = vec![
+            "compose-down",
             "compose-down-volumes",
+            "compose-legacy-down",
             "compose-legacy-down-volumes",
             "compose-legacy-rm-volumes",
             "compose-rm-volumes",
+            "docker-container-prune",
+            "docker-image-prune",
+            "docker-image-rm",
+            "docker-rm",
             "docker-rm-volumes",
+            "docker-rmi",
             "docker-system-prune-risky",
             "docker-volume-prune",
             "docker-volume-rm",
