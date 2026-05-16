@@ -222,6 +222,63 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         r"(?i)\bCREATE\s+(?:TABLE|DATABASE|SCHEMA)\b",
         "Creates a new database object — can permanently alter the schema",
     ),
+    // ---- Docker — Volume Destruction ----------------------------------
+    (
+        "docker-volume-rm",
+        "Docker — Volume Destruction",
+        Some("docker"),
+        r"\s[^|;&\n]*?\bvolume\s+rm\b",
+        "Removes named Docker volumes — irreversible data loss",
+    ),
+    (
+        "docker-volume-prune",
+        "Docker — Volume Destruction",
+        Some("docker"),
+        r"\s[^|;&\n]*?\bvolume\s+prune\b",
+        "Removes all unused Docker volumes — bulk irreversible data loss",
+    ),
+    (
+        "docker-system-prune-risky",
+        "Docker — Volume Destruction",
+        Some("docker"),
+        r"\s[^|;&\n]*?\bsystem\s+prune\b[^|;&\n]*?(?:--volumes\b|--all\b|-[a-zA-Z]*a[a-zA-Z]*\b)",
+        "system prune with --volumes or -a/--all deletes volumes and all images — high blast radius",
+    ),
+    (
+        "compose-down-volumes",
+        "Docker — Volume Destruction",
+        Some("docker"),
+        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\bdown\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*\b)",
+        "compose down -v removes all service containers and their volumes",
+    ),
+    (
+        "compose-legacy-down-volumes",
+        "Docker — Volume Destruction",
+        Some("docker-compose"),
+        r"\s[^|;&\n]*?\bdown\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*\b)",
+        "docker-compose down -v removes all service containers and their volumes",
+    ),
+    (
+        "compose-rm-volumes",
+        "Docker — Volume Destruction",
+        Some("docker"),
+        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\brm\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*\b)",
+        "compose rm -v removes stopped service containers and their anonymous volumes",
+    ),
+    (
+        "compose-legacy-rm-volumes",
+        "Docker — Volume Destruction",
+        Some("docker-compose"),
+        r"\s[^|;&\n]*?\brm\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*\b)",
+        "docker-compose rm -v removes stopped service containers and their anonymous volumes",
+    ),
+    (
+        "docker-rm-volumes",
+        "Docker — Volume Destruction",
+        Some("docker"),
+        r"\s[^|;&\n]*?\brm\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*\b)",
+        "Removes container and its anonymous volumes (-v) — irreversible data loss",
+    ),
 ];
 
 static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
@@ -488,6 +545,81 @@ mod tests {
         assert!(blocks(r#"psql -c "create schema analytics""#));
         assert!(!blocks(r#"psql -c "CREATE INDEX idx_email ON users(email)""#));
     }
+    // ---- Docker — Volume Destruction ----
+
+    #[test]
+    fn blocks_docker_volume_rm() {
+        assert!(blocks("docker volume rm mydata"));
+        assert!(blocks("docker volume rm mydata otherdata"));
+        assert!(blocks("docker volume rm -f mydata"));
+        assert!(!blocks("docker volume ls"));
+        assert!(!blocks("docker volume inspect mydata"));
+    }
+
+    #[test]
+    fn blocks_docker_volume_prune() {
+        assert!(blocks("docker volume prune"));
+        assert!(blocks("docker volume prune -f"));
+        assert!(!blocks("docker volume ls"));
+    }
+
+    #[test]
+    fn blocks_docker_system_prune_risky() {
+        assert!(blocks("docker system prune --volumes"));
+        assert!(blocks("docker system prune -a"));
+        assert!(blocks("docker system prune --all"));
+        assert!(blocks("docker system prune -af"));
+        assert!(blocks("docker system prune -f --volumes"));
+        assert!(!blocks("docker system prune"));
+        assert!(!blocks("docker system prune -f"));
+    }
+
+    #[test]
+    fn blocks_docker_rm_volumes() {
+        assert!(blocks("docker rm -v mycontainer"));
+        assert!(blocks("docker rm -fv mycontainer"));
+        assert!(blocks("docker rm --volumes mycontainer"));
+        assert_eq!(hit_id("docker rm -v mycontainer"), Some("docker-rm-volumes"));
+    }
+
+    #[test]
+    fn blocks_compose_down_volumes() {
+        assert!(blocks("docker compose down -v"));
+        assert!(blocks("docker compose down --volumes"));
+        assert!(blocks("docker compose -f compose.yml down -v"));
+        assert_eq!(hit_id("docker compose down -v"), Some("compose-down-volumes"));
+    }
+
+    #[test]
+    fn blocks_compose_legacy_down_volumes() {
+        assert!(blocks("docker-compose down -v"));
+        assert!(blocks("docker-compose down --volumes"));
+        assert!(blocks("docker-compose -f docker-compose.yml down -v"));
+        assert_eq!(
+            hit_id("docker-compose down -v"),
+            Some("compose-legacy-down-volumes")
+        );
+    }
+
+    #[test]
+    fn blocks_compose_rm_volumes() {
+        assert!(blocks("docker compose rm -v myservice"));
+        assert!(blocks("docker compose rm --volumes"));
+        assert_eq!(
+            hit_id("docker compose rm -v myservice"),
+            Some("compose-rm-volumes")
+        );
+    }
+
+    #[test]
+    fn blocks_compose_legacy_rm_volumes() {
+        assert!(blocks("docker-compose rm -v myservice"));
+        assert!(blocks("docker-compose rm --volumes myservice"));
+        assert_eq!(
+            hit_id("docker-compose rm -v"),
+            Some("compose-legacy-rm-volumes")
+        );
+    }
 
     // ---- General negative ----
 
@@ -546,6 +678,14 @@ mod tests {
         let mut ids: Vec<&str> = rules().iter().map(|r| r.id).collect();
         ids.sort();
         let expected = vec![
+            "compose-down-volumes",
+            "compose-legacy-down-volumes",
+            "compose-legacy-rm-volumes",
+            "compose-rm-volumes",
+            "docker-rm-volumes",
+            "docker-system-prune-risky",
+            "docker-volume-prune",
+            "docker-volume-rm",
             "helm-subprocess-list",
             "helm-uninstall",
             "k8s-apply-remote",
