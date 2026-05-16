@@ -94,7 +94,13 @@ Hook input schema (PreToolUse event from Claude Code): JSON with at least `tool_
 
 **Blacklist module** (`src/blacklist.rs`): the place to add rules. Rules are `(id, category, Option<bin>, sub_pattern, reason)` tuples in `RAW_RULES`. When `bin = Some(b)`, the LazyLock init assembles the full regex as `\b(?:b|alias1|alias2|...)\b<sub_pattern>` using aliases loaded from `~/.config/rsh/aliases.json` (module `src/aliases.rs`). When `bin = None`, `sub_pattern` is used as-is. Convention for kubectl-style sub-patterns: start with `\s[^|;&\n]*?\bVERB\b` so flags are allowed between the binary and the verb, and matches don't cross shell separators. When adding a rule: an entry in `RAW_RULES`, at least one positive and one negative test in the `tests` module. `id` slugs are stable — they appear in the block message shown to the model.
 
-**Alias module** (`src/aliases.rs`): persists a `BTreeMap<command, Vec<alias>>` as JSON. Storage location is platform-aware:
+**Forbid module** (`src/forbid.rs`): a second blocking pipeline orthogonal to the regex blacklist. Targets are the *cluster* and *namespace* a kubectl/helm command would hit, rather than the surface syntax of the command itself. The hook in `run_check` runs `blacklist::check` first; if that returns `None`, it then runs `forbid::check`. Either returning a hit produces exit code 2.
+
+The check extracts `--context=`/`--kube-context=` and `--namespace=`/`-n` from the command-line. If a flag is present, the extracted value is checked against the on-disk forbid lists. If a flag is absent, `forbid::check` falls back to live `kubectl config current-context` / `kubectl config view --minify -o jsonpath={..namespace}` to determine what the command would target by default. The `KubeEnv` trait makes those lookups injectable so the check is unit-testable without `kubectl` installed.
+
+Storage: `~/.config/rsh/forbidden.json` (or `%APPDATA%\rsh\forbidden.json` on Windows), holding `{ "clusters": [...], "namespaces": [...] }`. CLI surface: `rsh forbid cluster|namespace <name>`, `rsh forbid remove cluster|namespace <name>`, `rsh forbid list`. The forbid section is also rendered in `rsh list`.
+
+**Alias module** (`src/aliases.rs`): persists a `BTreeMap<command, Vec<alias>>` as JSON. The process-wide `aliases::ALIASES` `LazyLock` is shared between `blacklist` and `forbid` so we parse the JSON once per hook invocation. Storage location is platform-aware:
 
 - Unix: `$XDG_CONFIG_HOME/rsh/aliases.json` or `~/.config/rsh/aliases.json`.
 - Windows: `%XDG_CONFIG_HOME%/rsh/aliases.json` or `%APPDATA%\rsh\aliases.json`.

@@ -97,15 +97,35 @@ rsh detect-aliases helm      # auto-scan for a specific command
 
 Use `rsh list` at any time to see which aliases are baked into the rules.
 
+## Forbidden clusters and namespaces
+
+Beyond the regex blacklist, `rsh` can block any kubectl- or helm-aliased command that targets a forbidden cluster or namespace. This catches commands that aren't destructive on their own but should never run against a specific environment (e.g. anything against the production cluster).
+
+```sh
+rsh forbid cluster prod-eu          # block commands hitting context "prod-eu"
+rsh forbid namespace kube-system    # block commands hitting namespace "kube-system"
+rsh forbid list                     # show current forbid lists
+rsh forbid remove cluster prod-eu   # remove an entry
+```
+
+When a kubectl/helm command runs, `rsh` checks:
+
+1. Does the command contain `--context=<value>` (or `--kube-context=<value>` for helm)? If so, compare the value with the forbidden cluster list.
+2. Does it contain `--namespace=<value>` or `-n <value>`? Compare with the forbidden namespace list.
+3. If neither flag is present, `rsh` asks `kubectl` for the current context (`kubectl config current-context`) and the current namespace, and checks those.
+
+Storage: `~/.config/rsh/forbidden.json` (or the platform equivalent).
+
 ## Command overview
 
 ```text
 rsh                          Hook mode (invoked by Claude Code)
 rsh init [-g|--global]       Register the hook in settings.json
-rsh check "<command>"        Run the blacklist against a command
-rsh list                     Show all rules and aliases
+rsh check "<command>"        Run the blacklist + forbid checks against a command
+rsh list                     Show all rules, forbidden entries, and aliases
 rsh alias <cmd> <alias>      Register an alias
 rsh detect-aliases [cmd]     Auto-detect aliases
+rsh forbid ...               Manage forbidden clusters/namespaces (see above)
 rsh help    (-h, --help)     Show help
 rsh version (-v, --version)  Show version
 ```

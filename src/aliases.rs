@@ -1,8 +1,14 @@
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 pub type AliasMap = BTreeMap<String, Vec<String>>;
+
+/// Process-wide cached alias map. First read parses the JSON; subsequent
+/// reads are free. Shared between the blacklist and forbid modules so we
+/// don't load and parse the same file twice per hook invocation.
+pub static ALIASES: LazyLock<AliasMap> = LazyLock::new(load);
 
 /// Best-effort cross-platform home-directory lookup: HOME on Unix,
 /// USERPROFILE on Windows. Returns `None` if neither is set.

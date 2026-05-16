@@ -1,4 +1,4 @@
-use crate::aliases::{self, AliasMap};
+use crate::aliases::{self, ALIASES};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -159,8 +159,6 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "Removes a Helm release and all its resources — possible cascading data loss",
     ),
 ];
-
-static ALIASES: LazyLock<AliasMap> = LazyLock::new(aliases::load);
 
 static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
     RAW_RULES
