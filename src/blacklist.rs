@@ -248,14 +248,14 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "compose-down-volumes",
         "Docker — Volume Destruction",
         Some("docker"),
-        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\bdown\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*(?:\s|$))",
+        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\sdown\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*(?:\s|$))",
         "compose down -v removes all service containers and their volumes",
     ),
     (
         "compose-legacy-down-volumes",
         "Docker — Volume Destruction",
         Some("docker-compose"),
-        r"\s[^|;&\n]*?\bdown\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*(?:\s|$))",
+        r"[^|;&\n]*?\sdown\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*(?:\s|$))",
         "docker-compose down -v removes all service containers and their volumes",
     ),
     (
@@ -319,14 +319,14 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "compose-down",
         "Docker — Container/Image Cleanup",
         Some("docker"),
-        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\bdown\b",
+        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\sdown\b",
         "Stops and removes all service containers (volumes kept without -v)",
     ),
     (
         "compose-legacy-down",
         "Docker — Container/Image Cleanup",
         Some("docker-compose"),
-        r"\s[^|;&\n]*?\bdown\b",
+        r"[^|;&\n]*?\sdown\b",
         "Stops and removes all service containers (volumes kept without -v)",
     ),
 ];
@@ -641,6 +641,8 @@ mod tests {
         assert!(blocks("docker compose down --volumes"));
         assert!(blocks("docker compose -f compose.yml down -v"));
         assert_eq!(hit_id("docker compose down -v"), Some("compose-down-volumes"));
+        // Service names with -down suffix must not cause false positives
+        assert!(!blocks("docker compose restart markdown-down -v"));
     }
 
     #[test]
@@ -652,6 +654,8 @@ mod tests {
             hit_id("docker-compose down -v"),
             Some("compose-legacy-down-volumes")
         );
+        // Service names with -down suffix must not cause false positives
+        assert!(!blocks("docker-compose restart markdown-down -v"));
     }
 
     #[test]
@@ -731,6 +735,9 @@ mod tests {
         assert_eq!(hit_id("docker compose down"), Some("compose-down"));
         assert!(!blocks("docker compose up"));
         assert!(!blocks("docker compose ps"));
+        // Service names with -down suffix must not be blocked
+        assert!(!blocks("docker compose restart markdown-down"));
+        assert!(!blocks("docker compose logs markdown-down"));
     }
 
     #[test]
@@ -740,6 +747,9 @@ mod tests {
         assert_eq!(hit_id("docker-compose down"), Some("compose-legacy-down"));
         assert!(!blocks("docker-compose up"));
         assert!(!blocks("docker-compose ps"));
+        // Service names with -down suffix must not be blocked
+        assert!(!blocks("docker-compose restart markdown-down"));
+        assert!(!blocks("docker-compose logs markdown-down"));
     }
 
     // ---- General negative ----
