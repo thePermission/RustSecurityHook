@@ -159,6 +159,11 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "Removes a Helm release and all its resources — possible cascading data loss",
     ),
     // ---- SQL — Destructive DML ------------------------------------
+    // NOTE: These rules use `bin = None` so the SQL keyword check applies to any
+    // Bash command regardless of the executing program. This intentionally blocks
+    // `grep "DROP TABLE" logs.txt` and similar read-only uses — acceptable
+    // trade-off for an AI-agent security hook where exhaustive SQL coverage matters
+    // more than avoiding grep false positives.
     (
         "sql-delete",
         "SQL — Destructive DML",
@@ -170,7 +175,7 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "sql-truncate",
         "SQL — Destructive DML",
         None,
-        r"(?i)\bTRUNCATE\b",
+        r"(?i)\bTRUNCATE(?:\s+TABLE)?\s",
         "Removes all rows from a table instantly — no WHERE clause, no rollback without a transaction",
     ),
     // ---- SQL — Destructive DDL ------------------------------------
@@ -431,8 +436,9 @@ mod tests {
     #[test]
     fn blocks_sql_truncate() {
         assert!(blocks(r#"echo "TRUNCATE TABLE orders" | mysql"#));
-        assert!(blocks(r#"sqlite3 app.db "truncate orders""#));
+        assert!(blocks(r#"psql -c "truncate orders""#));
         assert!(!blocks(r#"mysql -e "INSERT INTO logs VALUES (1, 'ok')""#));
+        assert!(!blocks("TRUNCATE=1 ./deploy.sh"));
     }
 
     // ---- SQL — Destructive DDL ----
@@ -527,5 +533,25 @@ mod tests {
         );
         assert_eq!(hit_id("helm uninstall foo"), Some("helm-uninstall"));
         assert_eq!(hit_id("kubectl proxy"), Some("k8s-proxy"));
+        assert_eq!(
+            hit_id(r#"psql -c "DELETE FROM users""#),
+            Some("sql-delete")
+        );
+        assert_eq!(
+            hit_id(r#"psql -c "TRUNCATE TABLE orders""#),
+            Some("sql-truncate")
+        );
+        assert_eq!(
+            hit_id(r#"psql -c "DROP TABLE foo""#),
+            Some("sql-drop")
+        );
+        assert_eq!(
+            hit_id(r#"psql -c "ALTER TABLE users ADD COLUMN x INT""#),
+            Some("sql-alter-table")
+        );
+        assert_eq!(
+            hit_id(r#"mysql -e "CREATE TABLE tmp (id INT)""#),
+            Some("sql-create-schema")
+        );
     }
 }
