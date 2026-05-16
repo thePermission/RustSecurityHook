@@ -96,10 +96,11 @@ fn print_help() {
                                      (e.g. `rsh alias kubectl k` if `k` is a symlink/wrapper for kubectl)\n\
            rsh detect-aliases [cmd]  Auto-detect aliases by scanning $PATH for symlinks/hardlinks.\n\
                                      With no argument, scans all commands referenced by rules.\n\
-           rsh forbid cluster <name>     Add a forbidden cluster (context).\n\
-           rsh forbid namespace <name>   Add a forbidden namespace.\n\
-           rsh forbid remove cluster|namespace <name>\n\
-                                         Remove an entry from the forbid list.\n\
+           rsh forbid cluster <name>              Add a forbidden cluster (context).\n\
+           rsh forbid namespace <name>            Add a forbidden namespace.\n\
+           rsh forbid database <hostname>         Add a forbidden database hostname.\n\
+           rsh forbid remove cluster|namespace|database <name>\n\
+                                              Remove an entry from the forbid list.\n\
            rsh forbid list               Show the current forbid lists.\n\
            rsh help                  Show this message\n\
            rsh -v | --version        Show version"
@@ -141,11 +142,12 @@ fn list_rules() {
         }
     }
 
-    print_section("FORBIDDEN CLUSTERS AND NAMESPACES");
+    print_section("FORBIDDEN CLUSTERS, NAMESPACES AND DATABASES");
     let fcfg = forbid::load();
     if fcfg.is_empty() {
-        println!("  (none — register with `rsh forbid cluster <name>` or");
-        println!("                       `rsh forbid namespace <name>`)\n");
+        println!("  (none — register with `rsh forbid cluster <name>`,");
+        println!("                       `rsh forbid namespace <name>`, or");
+        println!("                       `rsh forbid database <hostname>`)\n");
     } else {
         if fcfg.clusters.is_empty() {
             println!("  Clusters:   (none)");
@@ -161,6 +163,14 @@ fn list_rules() {
             println!("  Namespaces ({}):", fcfg.namespaces.len());
             for n in &fcfg.namespaces {
                 println!("    • {n}");
+            }
+        }
+        if fcfg.databases.is_empty() {
+            println!("  Databases:  (none)");
+        } else {
+            println!("  Databases ({}):", fcfg.databases.len());
+            for d in &fcfg.databases {
+                println!("    • {d}");
             }
         }
         println!();
@@ -416,7 +426,8 @@ fn run_forbid(args: &[String]) -> ExitCode {
     let usage = "usage:\n  \
         rsh forbid cluster <name>\n  \
         rsh forbid namespace <name>\n  \
-        rsh forbid remove cluster|namespace <name>\n  \
+        rsh forbid database <hostname>\n  \
+        rsh forbid remove cluster|namespace|database <name>\n  \
         rsh forbid list";
 
     match args.first().map(String::as_str) {
@@ -460,6 +471,26 @@ fn run_forbid(args: &[String]) -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("database") => match args.get(1) {
+            Some(name) => match forbid::add_database(name) {
+                Ok(true) => {
+                    eprintln!("forbid: added database '{name}'");
+                    ExitCode::SUCCESS
+                }
+                Ok(false) => {
+                    eprintln!("forbid: database '{name}' was already on the list");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("forbid failed: {e:#}");
+                    ExitCode::FAILURE
+                }
+            },
+            None => {
+                eprintln!("usage: rsh forbid database <hostname>");
+                ExitCode::FAILURE
+            }
+        },
         Some("remove") => match (args.get(1).map(String::as_str), args.get(2)) {
             (Some("cluster"), Some(name)) => match forbid::remove_cluster(name) {
                 Ok(true) => {
@@ -489,15 +520,29 @@ fn run_forbid(args: &[String]) -> ExitCode {
                     ExitCode::FAILURE
                 }
             },
+            (Some("database"), Some(name)) => match forbid::remove_database(name) {
+                Ok(true) => {
+                    eprintln!("forbid: removed database '{name}'");
+                    ExitCode::SUCCESS
+                }
+                Ok(false) => {
+                    eprintln!("forbid: database '{name}' was not on the list");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("forbid failed: {e:#}");
+                    ExitCode::FAILURE
+                }
+            },
             _ => {
-                eprintln!("usage: rsh forbid remove cluster|namespace <name>");
+                eprintln!("usage: rsh forbid remove cluster|namespace|database <name>");
                 ExitCode::FAILURE
             }
         },
         Some("list") => {
             let cfg = forbid::load();
             if cfg.is_empty() {
-                println!("(no forbidden clusters or namespaces configured)");
+                println!("(no forbidden clusters, namespaces, or databases configured)");
             } else {
                 println!("Clusters:");
                 if cfg.clusters.is_empty() {
@@ -513,6 +558,14 @@ fn run_forbid(args: &[String]) -> ExitCode {
                 } else {
                     for n in &cfg.namespaces {
                         println!("  • {n}");
+                    }
+                }
+                println!("Databases:");
+                if cfg.databases.is_empty() {
+                    println!("  (none)");
+                } else {
+                    for d in &cfg.databases {
+                        println!("  • {d}");
                     }
                 }
             }
