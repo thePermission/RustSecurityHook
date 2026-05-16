@@ -103,6 +103,19 @@ Storage: `~/.config/rsh/forbidden.json` (or `%APPDATA%\rsh\forbidden.json` on Wi
 
 **Exit-code contract:** only `0` (allow) and `2` (block, message on stderr). Avoid other exit codes — Claude Code interprets `1` as "hook error", and behavior varies by version, which is not the same as "explicit block".
 
+## Documentation workflow
+
+After a feature is fully implemented:
+
+1. Distill the content of `docs/superpowers/specs/<feature>.md` and `docs/superpowers/plans/<feature>.md` into permanent documentation:
+   - **ADR** (`docs/adr/NNN-<slug>.md`) — record the architectural decision: context, decision, alternatives considered, consequences.
+   - **Behavior doc** (`docs/behavior/<topic>.md`) — describe the resulting behavior for users and contributors (living document, updated as rules evolve).
+2. Delete the spec and plan files — their content now lives in the ADR and behavior docs.
+
+If no spec/plan exists for a feature, write the ADR and behavior doc from scratch before closing the branch.
+
+3. Update `README.md` to reflect the current state of the code — verify that all described commands, flags, and behaviors match the actual implementation.
+
 ## Edition
 
 `Cargo.toml` uses `edition = "2024"` (set by `cargo init`). Requires a current stable Rust toolchain — installed via `rustup` (see `~/.cargo/env`).
