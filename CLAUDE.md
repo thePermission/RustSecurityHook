@@ -18,7 +18,25 @@ rsh init -g              # Hook in ~/.claude/settings.json eintragen (global)
 rsh init                 # Alternativ: ./.claude/settings.json im aktuellen Projekt
 ```
 
-Für Endnutzer-Installation existieren zusätzlich `README.md` und `install.sh` (One-Liner: `curl -fsSL https://raw.githubusercontent.com/thePermission/RustSecurityHook/main/install.sh | sh`). Das Skript installiert bei Bedarf rustup und führt dann `cargo install --git ...` aus. Bei Änderungen am Installationsweg beide Dateien synchron halten.
+## Release-Pipeline (für Endnutzer-Install)
+
+Endnutzer installieren `rsh` über den One-Liner `curl -fsSL .../install.sh | sh`. Das Skript braucht **keine** Rust-Toolchain, sondern lädt ein prebuilt Binary aus dem GitHub-Release. Damit das funktioniert, muss vor jeder Veröffentlichung der Release-Workflow durchlaufen sein:
+
+- `.github/workflows/release.yml` triggert auf Tag-Push `v*.*.*` (oder `workflow_dispatch` mit Tag-Parameter).
+- Matrix-Build für vier Targets: `x86_64-unknown-linux-musl` (statisch), `aarch64-unknown-linux-gnu` (per `cross`), `x86_64-apple-darwin`, `aarch64-apple-darwin`.
+- Jeder Job tarrt `target/<triple>/release/rsh` als `rsh-<tag>-<triple>.tar.gz` (Binary an Archive-Root) und hängt es per `softprops/action-gh-release` an den Release.
+- `install.sh` löst "latest" über die Redirect-URL von `/releases/latest` auf (vermeidet die API-Rate-Limit-Falle) und lädt das passende Asset.
+
+**Release-Workflow**:
+
+```sh
+# Version in Cargo.toml bumpen, dann:
+git tag v0.X.Y
+git push --tags
+# Actions baut + publiziert; install.sh findet danach automatisch das neueste Asset.
+```
+
+Bei Änderungen am Asset-Namen, an unterstützten Targets oder am Install-Pfad: `install.sh`, `release.yml` und README-Tabelle synchron halten.
 
 `init` ist idempotent (Dedup über das `command`-Feld). Wenn `rsh` im PATH liegt, wird `"rsh"` als Hook-Command eingetragen — sonst der absolute Pfad des aktuell laufenden Binaries. Empfohlen ist `cargo install --path .` zuerst, damit ein erneutes Build des Repos nicht den Hook bricht.
 

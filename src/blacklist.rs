@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 
 pub struct Rule {
     pub id: &'static str,
+    pub category: &'static str,
     pub reason: &'static str,
     pub bin: Option<&'static str>,
     /// Sub-pattern as written in `RAW_RULES` (without the binary-name prefix).
@@ -19,32 +20,37 @@ pub struct Hit {
     pub reason: &'static str,
 }
 
-/// `(id, bin, sub_pattern, reason)`
+/// `(id, category, bin, sub_pattern, reason)`
+/// - `category` groups related rules in `rsh list` output.
 /// - If `bin` is `Some(name)`, the regex is built as
 ///   `\b(?:name|alias1|alias2|...)\b<sub_pattern>` using aliases loaded
 ///   from the user's alias config.
 /// - If `bin` is `None`, the sub-pattern is used as-is.
-const RAW_RULES: &[(&str, Option<&str>, &str, &str)] = &[
+const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
     (
         "k8s-delete-namespace",
+        "Kubernetes",
         Some("kubectl"),
         r"\s[^|;&\n]*?\bdelete\s+(ns|namespace|namespaces)\b",
         "Deletes a Kubernetes namespace and cascades through all of its resources",
     ),
     (
         "k8s-delete-all",
+        "Kubernetes",
         Some("kubectl"),
         r"\s[^|;&\n]*?\bdelete\s+\S+[^|;&\n]*?--all\b",
         "Deletes all resources of a kind — high blast radius",
     ),
     (
         "k8s-delete-crd",
+        "Kubernetes",
         Some("kubectl"),
         r"\s[^|;&\n]*?\bdelete\s+(crd|crds|customresourcedefinition|customresourcedefinitions)\b",
         "Deletes a CustomResourceDefinition and every instance of it cluster-wide",
     ),
     (
         "k8s-force-delete",
+        "Kubernetes",
         Some("kubectl"),
         r"\s[^|;&\n]*?\bdelete\b(?:[^|;&\n]*--force\b[^|;&\n]*--grace-period=0|[^|;&\n]*--grace-period=0\b[^|;&\n]*--force)",
         "Force-deletes a resource without cleanup hooks; can leave orphans and corrupt state",
@@ -56,7 +62,7 @@ static ALIASES: LazyLock<AliasMap> = LazyLock::new(aliases::load);
 static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
     RAW_RULES
         .iter()
-        .map(|(id, bin, sub, reason)| {
+        .map(|(id, category, bin, sub, reason)| {
             let effective = match bin {
                 Some(b) => {
                     let alts: Vec<String> = aliases::aliases_for(&ALIASES, b)
@@ -71,6 +77,7 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
                 .unwrap_or_else(|e| panic!("invalid regex for rule {id}: {e}"));
             Rule {
                 id,
+                category,
                 reason,
                 bin: *bin,
                 sub_pattern: sub,

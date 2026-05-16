@@ -72,6 +72,10 @@ fn main() -> ExitCode {
             print_help();
             ExitCode::SUCCESS
         }
+        Some("--version") | Some("-v") | Some("version") => {
+            println!("rsh {}", env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
         _ => run_hook(),
     }
 }
@@ -90,37 +94,74 @@ fn print_help() {
                                      (e.g. `rsh alias kubectl k` if `k` is a symlink/wrapper for kubectl)\n\
            rsh detect-aliases [cmd]  Auto-detect aliases by scanning $PATH for symlinks/hardlinks.\n\
                                      With no argument, scans all commands referenced by rules.\n\
-           rsh help                  Show this message"
+           rsh help                  Show this message\n\
+           rsh -v | --version        Show version"
     );
 }
 
 fn list_rules() {
+    use std::collections::BTreeMap;
+
     let rules = blacklist::rules();
     let aliases = aliases::load();
 
+    print_section("BLACKLIST RULES");
     if rules.is_empty() {
-        println!("(no blacklist rules configured)");
+        println!("  (no rules configured)\n");
     } else {
-        println!("{} rule(s) configured:\n", rules.len());
+        let mut by_category: BTreeMap<&str, Vec<&blacklist::Rule>> = BTreeMap::new();
         for r in rules {
-            println!("  [{}]", r.id);
-            println!("    reason:  {}", r.reason);
-            if let Some(b) = r.bin {
-                println!("    binary:  {b}");
+            by_category.entry(r.category).or_default().push(r);
+        }
+        println!(
+            "  {} rule(s) across {} categor{}\n",
+            rules.len(),
+            by_category.len(),
+            if by_category.len() == 1 { "y" } else { "ies" }
+        );
+        for (cat, items) in &by_category {
+            println!("  ▌ {} ({})", cat, items.len());
+            println!("  ────────────────────────────────────────────────────────────");
+            for r in items {
+                println!("    • {}", r.id);
+                println!("        reason  : {}", r.reason);
+                if let Some(b) = r.bin {
+                    println!("        binary  : {b}");
+                }
+                println!("        pattern : {}", r.effective_pattern);
+                println!();
             }
-            println!("    pattern: {}", r.effective_pattern);
-            println!();
         }
     }
 
+    print_section("ALIASES");
     if aliases.is_empty() {
-        println!("aliases: (none — see `rsh alias` and `rsh detect-aliases`)");
+        println!("  (none — register with `rsh alias <cmd> <alias>`");
+        println!("         or auto-detect with `rsh detect-aliases`)\n");
     } else {
-        println!("aliases:");
+        let total: usize = aliases.values().map(|v| v.len()).sum();
+        println!(
+            "  {} alias{} for {} command{}\n",
+            total,
+            if total == 1 { "" } else { "es" },
+            aliases.len(),
+            if aliases.len() == 1 { "" } else { "s" }
+        );
         for (cmd, list) in &aliases {
-            println!("  {cmd} ← {}", list.join(", "));
+            println!("    {cmd}");
+            for (i, a) in list.iter().enumerate() {
+                let connector = if i + 1 == list.len() { "└─" } else { "├─" };
+                println!("      {connector} {a}");
+            }
+            println!();
         }
     }
+}
+
+fn print_section(title: &str) {
+    println!("══════════════════════════════════════════════════════════════");
+    println!("  {title}");
+    println!("══════════════════════════════════════════════════════════════");
 }
 
 fn rule_bins() -> Vec<String> {
