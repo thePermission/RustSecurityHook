@@ -6,40 +6,43 @@ Out of the box, `rsh` ships with a small set of rules for destructive `kubectl` 
 
 ## Installation
 
-All installers download a prebuilt binary from the latest [GitHub release](https://github.com/thePermission/RustSecurityHook/releases). No build tools or Rust toolchain required.
+All installers download a prebuilt binary from the latest [GitHub release](https://github.com/thePermission/RustSecurityHook/releases) and verify its SHA256 checksum before extracting. No build tools or Rust toolchain required.
 
 ### Linux / macOS
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/thePermission/RustSecurityHook/main/install.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/thePermission/RustSecurityHook/releases/latest/download/rsh-installer.sh | sh
 ```
-
-Installs to `~/.local/bin/rsh` by default.
 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/thePermission/RustSecurityHook/main/install.ps1 | iex
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/thePermission/RustSecurityHook/releases/latest/download/rsh-installer.ps1 | iex"
 ```
 
-Installs to `%LOCALAPPDATA%\Programs\rsh\rsh.exe` by default and adds that directory to your user `PATH` automatically (you may need to open a new terminal to pick it up).
+By default the binary is installed to `~/.cargo/bin` (or the platform equivalent) and that directory is appended to your `PATH` automatically.
 
 ### Supported platforms
 
 | OS      | Architecture                       |
 |---------|------------------------------------|
-| Linux   | x86_64, aarch64                    |
+| Linux   | x86_64 (musl), aarch64 (gnu)       |
 | macOS   | x86_64, Apple Silicon (aarch64)    |
 | Windows | x86_64                             |
 
-### Optional environment variables
+### Manual download
 
-| Variable          | Effect                                                                    |
-|-------------------|---------------------------------------------------------------------------|
-| `RSH_VERSION`     | Install a specific release tag (e.g. `v0.2.0`). Default: latest release.  |
-| `RSH_INSTALL_DIR` | Install into a different directory.                                       |
+If you prefer to install manually, the [releases page](https://github.com/thePermission/RustSecurityHook/releases) lists one archive per platform plus its `.sha256` checksum file:
 
-Make sure your install directory is on your `PATH` — the script warns you if it isn't.
+```sh
+# Linux x86_64 example
+TAG=v0.1.0
+curl -fsSL -O https://github.com/thePermission/RustSecurityHook/releases/download/$TAG/rsh-x86_64-unknown-linux-musl.tar.xz
+curl -fsSL -O https://github.com/thePermission/RustSecurityHook/releases/download/$TAG/rsh-x86_64-unknown-linux-musl.tar.xz.sha256
+sha256sum -c rsh-x86_64-unknown-linux-musl.tar.xz.sha256
+tar -xJf rsh-x86_64-unknown-linux-musl.tar.xz
+```
 
 ### Verify
 

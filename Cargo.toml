@@ -2,6 +2,10 @@
 name = "rsh"
 version = "0.1.0"
 edition = "2024"
+description = "Claude Code PreToolUse hook that blocks Bash commands matching a configurable blacklist."
+license = "Apache-2.0"
+repository = "https://github.com/thePermission/RustSecurityHook"
+readme = "README.md"
 
 [[bin]]
 name = "rsh"
@@ -12,3 +16,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
 anyhow = "1"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

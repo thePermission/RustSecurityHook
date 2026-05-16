@@ -1,0 +1,23 @@
+[workspace]
+members = ["cargo:."]
+
+[dist]
+cargo-dist-version = "0.31.0"
+ci = "github"
+
+# Shell + PowerShell installers; both verify the SHA256 of the downloaded
+# tarball/zip before extracting, using checksums dist publishes alongside.
+installers = ["shell", "powershell"]
+
+# Target platforms. musl on x86_64 Linux gives a statically linked binary
+# that runs on any libc; aarch64 Linux is cross-built against gnu.
+targets = [
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+
+# Default install destination for end users (~/.cargo/bin or platform analog).
+install-path = "CARGO_HOME"
