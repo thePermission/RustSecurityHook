@@ -297,21 +297,23 @@ fn check_content_blocked(content: &str, label: &str) -> bool {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if let Some(hit) = forbid::check_with(line, &aliases::ALIASES, &cfg, &forbid::KubectlEnv) {
-            let kind = match hit.kind {
-                forbid::HitKind::Cluster => "cluster",
-                forbid::HitKind::Namespace => "namespace",
-                forbid::HitKind::Database => "database",
+        if let Some(hit) = forbid::check_with(line, &aliases::ALIASES, &cfg, &forbid::KubectlEnv)
+            .or_else(|| forbid::check_db(line, &cfg))
+        {
+            let msg = match hit.kind {
+                forbid::HitKind::Cluster => {
+                    let origin = if hit.from_current_context { " (current kubeconfig)" } else { "" };
+                    format!("forbidden cluster '{}'{origin}", hit.value)
+                }
+                forbid::HitKind::Namespace => {
+                    let origin = if hit.from_current_context { " (current kubeconfig)" } else { "" };
+                    format!("forbidden namespace '{}'{origin}", hit.value)
+                }
+                forbid::HitKind::Database => {
+                    format!("forbidden database host '{}'", hit.value)
+                }
             };
-            let origin = if hit.from_current_context {
-                " (current kubeconfig)"
-            } else {
-                ""
-            };
-            eprintln!(
-                "rsh blocked {}: forbidden {kind} '{}'{origin}",
-                label, hit.value
-            );
+            eprintln!("rsh blocked {label}: {msg}");
             return true;
         }
     }
@@ -332,20 +334,19 @@ fn run_check(command: &str) -> ExitCode {
         return ExitCode::from(2);
     }
     if let Some(hit) = forbid::check(command) {
-        let kind = match hit.kind {
-            forbid::HitKind::Cluster => "cluster",
-            forbid::HitKind::Namespace => "namespace",
-            forbid::HitKind::Database => "database",
-        };
-        let origin = if hit.from_current_context {
-            " (current kubeconfig)"
-        } else {
-            ""
-        };
-        eprintln!(
-            "rsh blocked command: forbidden {kind} '{}'{origin}",
-            hit.value
-        );
+        match hit.kind {
+            forbid::HitKind::Cluster => {
+                let origin = if hit.from_current_context { " (current kubeconfig)" } else { "" };
+                eprintln!("rsh blocked command: forbidden cluster '{}'{origin}", hit.value);
+            }
+            forbid::HitKind::Namespace => {
+                let origin = if hit.from_current_context { " (current kubeconfig)" } else { "" };
+                eprintln!("rsh blocked command: forbidden namespace '{}'{origin}", hit.value);
+            }
+            forbid::HitKind::Database => {
+                eprintln!("rsh blocked command: forbidden database host '{}'", hit.value);
+            }
+        }
         return ExitCode::from(2);
     }
     for path in script_paths_in(command) {
