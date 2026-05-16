@@ -1,101 +1,101 @@
 # rsh – Rust Security Hook
 
-Ein schlanker Claude-Code-`PreToolUse`-Hook. Vor jedem `Bash`-Tool-Call prüft `rsh` den Befehl gegen eine Blacklist und blockiert ihn bei Treffer mit einer Begründung. Claude Code wertet das als "Tool-Call verweigert" und reicht die Meldung ans Modell zurück.
+A lean Claude Code `PreToolUse` hook. Before every `Bash` tool call, `rsh` checks the command against a blacklist and blocks it on a match by exiting with a reason on stderr. Claude Code treats that as a refused tool call and surfaces the message back to the model.
 
-Aktuell mitgeliefert: ein kleiner Satz Regeln für destruktive `kubectl`-Operationen (`delete namespace`, `delete --all`, `delete crd`, force-delete). Welche Regeln aktiv sind, kannst du jederzeit mit `rsh list` einsehen.
+Out of the box, `rsh` ships with a small set of rules for destructive `kubectl` operations (`delete namespace`, `delete --all`, `delete crd`, force-delete). You can always see which rules are active with `rsh list`.
 
 ## Installation
 
-### One-Liner (Linux / macOS)
+### One-liner (Linux / macOS)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/thePermission/RustSecurityHook/main/install.sh | sh
 ```
 
-Das Skript lädt ein fertiges Binary aus dem [GitHub-Release](https://github.com/thePermission/RustSecurityHook/releases) für deine Plattform und legt es unter `~/.local/bin/rsh` ab. Keine Build-Werkzeuge oder Rust-Toolchain nötig.
+The script downloads a prebuilt binary from the latest [GitHub release](https://github.com/thePermission/RustSecurityHook/releases) for your platform and places it at `~/.local/bin/rsh`. No build tools or Rust toolchain required.
 
-Unterstützte Plattformen:
+Supported platforms:
 
-| OS | Architektur |
-|----|-------------|
-| Linux | x86_64, aarch64 |
-| macOS | x86_64, Apple Silicon (aarch64) |
+| OS    | Architecture                       |
+|-------|------------------------------------|
+| Linux | x86_64, aarch64                    |
+| macOS | x86_64, Apple Silicon (aarch64)    |
 
-Optionale Env-Vars:
+Optional environment variables:
 
-| Variable | Wirkung |
-|----------|---------|
-| `RSH_VERSION` | Bestimmten Release-Tag installieren (z.B. `v0.2.0`); Default ist das neueste Release |
-| `RSH_INSTALL_DIR` | Anderen Zielordner verwenden (Default: `~/.local/bin`) |
+| Variable          | Effect                                                                    |
+|-------------------|---------------------------------------------------------------------------|
+| `RSH_VERSION`     | Install a specific release tag (e.g. `v0.2.0`). Default: latest release.  |
+| `RSH_INSTALL_DIR` | Install into a different directory. Default: `~/.local/bin`.              |
 
-Stelle sicher, dass dein Zielordner in `$PATH` liegt — das Skript warnt dich, falls nicht.
+Make sure your install directory is on `$PATH` — the script warns you if it isn't.
 
-### Verifizieren
+### Verify
 
 ```sh
 rsh --version
 rsh --help
 ```
 
-## Als Claude-Code-Hook registrieren
+## Register as a Claude Code hook
 
-Einmal nach der Installation ausführen:
-
-```sh
-rsh init -g          # global in ~/.claude/settings.json
-# oder projektlokal:
-rsh init             # in ./.claude/settings.json des aktuellen Verzeichnisses
-```
-
-`init` ist idempotent (mehrfache Ausführung erzeugt keine Dubletten) und scannt im Anschluss automatisch deinen `$PATH` nach bekannten Aliasen für `kubectl` und andere Regel-Binaries.
-
-Zum Entfernen einfach den entsprechenden `PreToolUse`-Eintrag aus der `settings.json` löschen.
-
-## Benutzung
-
-`rsh` wird primär automatisch von Claude Code aufgerufen — nach `rsh init` ist nichts weiter nötig. Für manuelle Inspektion:
+Run once after installation:
 
 ```sh
-rsh list                          # alle Regeln und Aliase übersichtlich anzeigen
-rsh check "kubectl delete ns prod"  # einen literalen Befehl gegen die Blacklist prüfen
+rsh init -g          # global, in ~/.claude/settings.json
+# or project-local:
+rsh init             # in ./.claude/settings.json of the current directory
 ```
 
-Exit-Codes (relevant für den Hook-Modus):
+`init` is idempotent (running it multiple times never duplicates entries) and afterwards automatically scans your `$PATH` for known aliases of `kubectl` and other rule binaries.
 
-| Code | Bedeutung |
-|------|-----------|
-| `0`  | Befehl ist erlaubt |
-| `2`  | Befehl wurde blockiert; Begründung steht auf stderr |
+To remove the hook, delete the corresponding `PreToolUse` entry from `settings.json`.
 
-## Aliase verwalten
+## Usage
 
-Die Blacklist erkennt nicht nur die exakten Binary-Namen (z.B. `kubectl`), sondern auch alle registrierten Aliase. Aliase liegen in `~/.config/rsh/aliases.json`.
+`rsh` is primarily invoked automatically by Claude Code — after `rsh init` you don't need to do anything else. For manual inspection:
 
 ```sh
-rsh alias kubectl k          # manuell: "k" zeigt auf kubectl
-rsh detect-aliases           # automatisch: scannt $PATH nach allen Regel-Binaries
-rsh detect-aliases helm      # gezielter Scan für ein bestimmtes Tool
+rsh list                                # show all rules and aliases
+rsh check "kubectl delete ns prod"      # test a literal command against the blacklist
 ```
 
-**Was automatisch erkannt wird:** Symlinks und Hardlinks im `$PATH`, deren `realpath()` auf dasselbe Binary auflöst.
+Exit codes (relevant when running as a hook):
 
-**Was nicht erkannt wird:** Wrapper-Skripte, Shell-Aliase aus `.bashrc`/`.zshrc` (werden in `bash -c` ohnehin nicht expandiert) und umbenannte Kopien des Binaries. Eine reine Textblacklist kann determinierte Umgehung nicht verhindern.
+| Code | Meaning                                                             |
+|------|---------------------------------------------------------------------|
+| `0`  | Command is allowed                                                  |
+| `2`  | Command is blocked; reason printed to stderr                        |
 
-Mit `rsh list` siehst du, welche Aliase aktiv in die Regeln eingebaut werden.
+## Managing aliases
 
-## Befehlsübersicht
+The blacklist matches not just the exact binary name (e.g. `kubectl`) but also any registered aliases. Aliases live in `~/.config/rsh/aliases.json`.
+
+```sh
+rsh alias kubectl k          # manually register: "k" points to kubectl
+rsh detect-aliases           # auto-scan: find aliases for all rule binaries in $PATH
+rsh detect-aliases helm      # auto-scan for a specific command
+```
+
+**Detected automatically:** symlinks and hardlinks in `$PATH` whose `realpath()` resolves to the same binary.
+
+**Not detected:** wrapper scripts, shell aliases from `.bashrc`/`.zshrc` (which `bash -c` doesn't expand anyway), or renamed copies of the binary. A pure text blacklist can't defeat determined evasion.
+
+Use `rsh list` at any time to see which aliases are baked into the rules.
+
+## Command overview
 
 ```text
-rsh                          Hook-Modus (von Claude Code aufgerufen)
-rsh init [-g|--global]       Hook in settings.json eintragen
-rsh check "<command>"        Blacklist gegen einen Befehl prüfen
-rsh list                     Alle Regeln und Aliase anzeigen
-rsh alias <cmd> <alias>      Alias eintragen
-rsh detect-aliases [cmd]     Aliase automatisch erkennen
-rsh help    (-h, --help)     Hilfe anzeigen
-rsh version (-v, --version)  Version anzeigen
+rsh                          Hook mode (invoked by Claude Code)
+rsh init [-g|--global]       Register the hook in settings.json
+rsh check "<command>"        Run the blacklist against a command
+rsh list                     Show all rules and aliases
+rsh alias <cmd> <alias>      Register an alias
+rsh detect-aliases [cmd]     Auto-detect aliases
+rsh help    (-h, --help)     Show help
+rsh version (-v, --version)  Show version
 ```
 
-## Lizenz
+## License
 
-Apache License 2.0 — siehe [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE).
