@@ -227,7 +227,7 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "docker-volume-rm",
         "Docker — Volume Destruction",
         Some("docker"),
-        r"\s[^|;&\n]*?\bvolume\s+rm\b",
+        r"\s[^|;&\n]*?\bvolume\s+(?:rm|remove)\b",
         "Removes named Docker volumes — irreversible data loss",
     ),
     (
@@ -241,42 +241,42 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "docker-system-prune-risky",
         "Docker — Volume Destruction",
         Some("docker"),
-        r"\s[^|;&\n]*?\bsystem\s+prune\b[^|;&\n]*?(?:--volumes\b|--all\b|-[a-zA-Z]*a[a-zA-Z]*\b)",
+        r"\s[^|;&\n]*?\bsystem\s+prune\b[^|;&\n]*?(?:--volumes\b|--all\b|-[a-zA-Z]*a[a-zA-Z]*(?:\s|$))",
         "system prune with --volumes or -a/--all deletes volumes and all images — high blast radius",
     ),
     (
         "compose-down-volumes",
         "Docker — Volume Destruction",
         Some("docker"),
-        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\bdown\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*\b)",
+        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\bdown\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*(?:\s|$))",
         "compose down -v removes all service containers and their volumes",
     ),
     (
         "compose-legacy-down-volumes",
         "Docker — Volume Destruction",
         Some("docker-compose"),
-        r"\s[^|;&\n]*?\bdown\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*\b)",
+        r"\s[^|;&\n]*?\bdown\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*(?:\s|$))",
         "docker-compose down -v removes all service containers and their volumes",
     ),
     (
         "compose-rm-volumes",
         "Docker — Volume Destruction",
         Some("docker"),
-        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\brm\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*\b)",
+        r"\s[^|;&\n]*?\bcompose\b[^|;&\n]*?\brm\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*(?:\s|$))",
         "compose rm -v removes stopped service containers and their anonymous volumes",
     ),
     (
         "compose-legacy-rm-volumes",
         "Docker — Volume Destruction",
         Some("docker-compose"),
-        r"\s[^|;&\n]*?\brm\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*\b)",
+        r"\s[^|;&\n]*?\brm\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*(?:\s|$))",
         "docker-compose rm -v removes stopped service containers and their anonymous volumes",
     ),
     (
         "docker-rm-volumes",
         "Docker — Volume Destruction",
         Some("docker"),
-        r"\s[^|;&\n]*?\brm\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*\b)",
+        r"\s[^|;&\n]*?\brm\b[^|;&\n]*?(?:--volumes\b|-[a-zA-Z]*v[a-zA-Z]*(?:\s|$))",
         "Removes container and its anonymous volumes (-v) — irreversible data loss",
     ),
 ];
@@ -552,6 +552,7 @@ mod tests {
         assert!(blocks("docker volume rm mydata"));
         assert!(blocks("docker volume rm mydata otherdata"));
         assert!(blocks("docker volume rm -f mydata"));
+        assert!(blocks("docker volume remove mydata"));
         assert!(!blocks("docker volume ls"));
         assert!(!blocks("docker volume inspect mydata"));
     }
@@ -572,6 +573,8 @@ mod tests {
         assert!(blocks("docker system prune -f --volumes"));
         assert!(!blocks("docker system prune"));
         assert!(!blocks("docker system prune -f"));
+        assert!(!blocks("docker system prune --label=foo"));
+        assert!(!blocks("docker system prune --filter foo"));
     }
 
     #[test]
@@ -588,6 +591,9 @@ mod tests {
         assert!(blocks("docker compose down --volumes"));
         assert!(blocks("docker compose -f compose.yml down -v"));
         assert_eq!(hit_id("docker compose down -v"), Some("compose-down-volumes"));
+        assert!(!blocks("docker compose down --remove-orphans"));
+        assert!(!blocks("docker compose down --service-ports"));
+        assert!(!blocks("docker compose down"));
     }
 
     #[test]
@@ -599,6 +605,8 @@ mod tests {
             hit_id("docker-compose down -v"),
             Some("compose-legacy-down-volumes")
         );
+        assert!(!blocks("docker-compose down --remove-orphans"));
+        assert!(!blocks("docker-compose down"));
     }
 
     #[test]
