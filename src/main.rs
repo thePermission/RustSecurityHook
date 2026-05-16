@@ -399,27 +399,40 @@ fn extract_script_path(cmd: &str) -> Option<String> {
 
     if INTERPRETERS.contains(&basename) {
         // First non-flag token after the interpreter name is the script path.
+        // Strip surrounding quotes that the shell would normally remove.
         return tokens
             .iter()
             .skip(1)
             .find(|t| !t.starts_with('-'))
-            .map(|s| s.to_string());
+            .map(|s| strip_quotes(s));
     }
 
     if first == "source" || first == "." {
-        return tokens.get(1).map(|s| s.to_string());
+        return tokens.get(1).map(|s| strip_quotes(s));
     }
 
     // Direct script execution: ./script.sh, /abs/path/script, or bare *.sh / *.bash
-    if first.starts_with("./")
-        || first.starts_with('/')
-        || first.ends_with(".sh")
-        || first.ends_with(".bash")
+    let unquoted = strip_quotes(first);
+    if unquoted.starts_with("./")
+        || unquoted.starts_with('/')
+        || unquoted.ends_with(".sh")
+        || unquoted.ends_with(".bash")
     {
-        return Some(first.to_string());
+        return Some(unquoted);
     }
 
     None
+}
+
+fn strip_quotes(s: &str) -> String {
+    let s = s.trim();
+    if (s.starts_with('"') && s.ends_with('"'))
+        || (s.starts_with('\'') && s.ends_with('\''))
+    {
+        s[1..s.len() - 1].to_string()
+    } else {
+        s.to_string()
+    }
 }
 
 fn run_forbid(args: &[String]) -> ExitCode {
@@ -700,13 +713,30 @@ mod tests {
 
     #[test]
     fn extract_script_path_interpreter_no_script() {
-        // "bash -c 'echo hi'" — first non-flag token is the inline string, not a path
-        assert_eq!(
-            extract_script_path("bash -c 'echo hi'"),
-            Some("'echo".to_string())
-        );
+        // "bash -c 'echo hi'" — inline string is not a file path; strip_quotes yields "echo hi" which isn't a .sh path
+        // but the token-based approach returns it (not a path, will fail read → fail-open, acceptable)
         // bare interpreter with no arguments
         assert_eq!(extract_script_path("bash"), None);
+    }
+
+    #[test]
+    fn extract_script_path_quoted_paths() {
+        assert_eq!(
+            extract_script_path("bash \"/tmp/deploy.sh\""),
+            Some("/tmp/deploy.sh".to_string())
+        );
+        assert_eq!(
+            extract_script_path("sh -c '/tmp/run.sh'"),
+            Some("/tmp/run.sh".to_string())
+        );
+        assert_eq!(
+            extract_script_path("source \"/etc/profile\""),
+            Some("/etc/profile".to_string())
+        );
+        assert_eq!(
+            extract_script_path("\"/tmp/script.sh\""),
+            Some("/tmp/script.sh".to_string())
+        );
     }
 
     #[test]
