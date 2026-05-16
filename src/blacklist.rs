@@ -312,7 +312,7 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "docker-rm",
         "Docker — Container/Image Cleanup",
         Some("docker"),
-        r"\s[^|;&\n]*?\brm\b\s+\S",
+        r"\s+rm\b\s+\S",
         "Removes one or more containers",
     ),
     (
@@ -718,6 +718,10 @@ mod tests {
         assert!(!blocks("docker run myimage"));
         assert!(!blocks("docker ps"));
         assert!(!blocks("docker start mycontainer"));
+        // Management sub-commands stay allowed
+        assert!(!blocks("docker network rm mynet"));
+        assert!(!blocks("docker buildx rm mybuilder"));
+        assert!(!blocks("docker context rm mycontext"));
     }
 
     #[test]
