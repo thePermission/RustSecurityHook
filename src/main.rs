@@ -301,6 +301,7 @@ fn check_content_blocked(content: &str, label: &str) -> bool {
             let kind = match hit.kind {
                 forbid::HitKind::Cluster => "cluster",
                 forbid::HitKind::Namespace => "namespace",
+                forbid::HitKind::Database => "database",
             };
             let origin = if hit.from_current_context {
                 " (current kubeconfig)"
@@ -334,6 +335,7 @@ fn run_check(command: &str) -> ExitCode {
         let kind = match hit.kind {
             forbid::HitKind::Cluster => "cluster",
             forbid::HitKind::Namespace => "namespace",
+            forbid::HitKind::Database => "database",
         };
         let origin = if hit.from_current_context {
             " (current kubeconfig)"

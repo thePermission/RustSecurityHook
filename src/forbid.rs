@@ -13,9 +13,11 @@
 //! ```
 
 use anyhow::{Context, Result};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::LazyLock;
 
 use crate::aliases::{self, AliasMap};
 
@@ -39,6 +41,7 @@ impl ForbidConfig {
 pub enum HitKind {
     Cluster,
     Namespace,
+    Database,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -234,6 +237,7 @@ pub fn check(command: &str) -> Option<Hit> {
         return None;
     }
     check_with(command, &aliases::ALIASES, &cfg, &KubectlEnv)
+        .or_else(|| check_db(command, &cfg))
 }
 
 /// Inner check that's pure (no globals, no I/O) when `env` is a mock —
@@ -303,6 +307,55 @@ pub fn check_with(
     }
 
     None
+}
+
+// ---- database check -----------------------------------------------------
+
+const SQL_CLIENTS: &[&str] = &["mysql", "mariadb", "psql", "sqlite3", "sqlcmd", "mssql-cli"];
+
+fn extract_db_host(command: &str) -> Option<String> {
+    static URL_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?:postgresql|postgres|mysql|mariadb|sqlserver|mssql)://(?:[^@/\s]+@)?([^/:?\s]+)",
+        )
+        .expect("valid regex")
+    });
+    if let Some(caps) = URL_RE.captures(command) {
+        if let Some(host) = caps.get(1).map(|m| m.as_str().to_string()) {
+            if !host.is_empty() {
+                return Some(host);
+            }
+        }
+    }
+    extract_flag(command, &["-h", "--host"])
+}
+
+pub fn check_db(command: &str, cfg: &ForbidConfig) -> Option<Hit> {
+    if cfg.databases.is_empty() {
+        return None;
+    }
+    let first = command.split_whitespace().next()?;
+    let basename = std::path::Path::new(first)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(first);
+    let basename = basename
+        .strip_suffix(".exe")
+        .or_else(|| basename.strip_suffix(".EXE"))
+        .unwrap_or(basename);
+    if !SQL_CLIENTS.contains(&basename) {
+        return None;
+    }
+    let host = extract_db_host(command)?;
+    if cfg.databases.iter().any(|d| d.eq_ignore_ascii_case(&host)) {
+        Some(Hit {
+            kind: HitKind::Database,
+            value: host,
+            from_current_context: false,
+        })
+    } else {
+        None
+    }
 }
 
 // ---- helpers ------------------------------------------------------------
@@ -402,6 +455,75 @@ mod tests {
             namespaces: names.iter().map(|s| s.to_string()).collect(),
             databases: vec![],
         }
+    }
+
+    fn cfg_databases(hosts: &[&str]) -> ForbidConfig {
+        ForbidConfig {
+            clusters: vec![],
+            namespaces: vec![],
+            databases: hosts.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    // ---- check_db ----
+
+    #[test]
+    fn check_db_blocks_connection_url() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        assert!(check_db("psql postgresql://prod-db.example.com/mydb", &cfg).is_some());
+        assert!(check_db("mysql mysql://prod-db.example.com:3306/app", &cfg).is_some());
+    }
+
+    #[test]
+    fn check_db_blocks_url_with_userinfo() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        assert!(check_db(
+            "psql postgresql://user:secret@prod-db.example.com/mydb",
+            &cfg
+        )
+        .is_some());
+    }
+
+    #[test]
+    fn check_db_blocks_host_flag_space_form() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        assert!(check_db("psql -h prod-db.example.com -U user mydb", &cfg).is_some());
+        assert!(check_db("mysql -h prod-db.example.com mydb", &cfg).is_some());
+    }
+
+    #[test]
+    fn check_db_blocks_host_flag_equals_form() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        assert!(check_db("psql --host=prod-db.example.com mydb", &cfg).is_some());
+    }
+
+    #[test]
+    fn check_db_allows_non_forbidden_host() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        assert!(check_db("psql -h staging-db.example.com mydb", &cfg).is_none());
+        assert!(check_db("psql postgresql://staging-db.example.com/mydb", &cfg).is_none());
+    }
+
+    #[test]
+    fn check_db_allows_sql_client_without_host() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        assert!(check_db("psql mydbname", &cfg).is_none());
+    }
+
+    #[test]
+    fn check_db_skips_non_sql_client_commands() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        assert!(check_db("grep prod-db.example.com /etc/hosts", &cfg).is_none());
+        assert!(check_db("curl http://prod-db.example.com/api", &cfg).is_none());
+    }
+
+    #[test]
+    fn check_db_returns_database_hit_kind() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        let hit = check_db("psql -h prod-db.example.com mydb", &cfg).unwrap();
+        assert_eq!(hit.kind, HitKind::Database);
+        assert_eq!(hit.value, "prod-db.example.com");
+        assert!(!hit.from_current_context);
     }
 
     // ---- extract_flag ----
