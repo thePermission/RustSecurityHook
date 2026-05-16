@@ -388,7 +388,10 @@ fn script_paths_in(command: &str) -> Vec<String> {
 
 /// If `cmd` is an invocation of a script file, returns the file path; otherwise None.
 fn extract_script_path(cmd: &str) -> Option<String> {
-    const INTERPRETERS: &[&str] = &["bash", "sh", "zsh", "ksh", "dash", "fish"];
+    const INTERPRETERS: &[&str] = &[
+        "bash", "sh", "zsh", "ksh", "dash", "fish",
+        "python", "python3", "perl", "ruby", "node", "nodejs",
+    ];
 
     let tokens: Vec<&str> = cmd.split_whitespace().collect();
     let first = *tokens.first()?;
@@ -708,6 +711,34 @@ mod tests {
         assert_eq!(
             extract_script_path("zsh -x /opt/setup.sh"),
             Some("/opt/setup.sh".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_script_path_extended_interpreters() {
+        assert_eq!(
+            extract_script_path("python3 /tmp/evil.py"),
+            Some("/tmp/evil.py".to_string())
+        );
+        assert_eq!(
+            extract_script_path("python /tmp/evil.py"),
+            Some("/tmp/evil.py".to_string())
+        );
+        assert_eq!(
+            extract_script_path("perl /tmp/evil.pl"),
+            Some("/tmp/evil.pl".to_string())
+        );
+        assert_eq!(
+            extract_script_path("ruby /tmp/evil.rb"),
+            Some("/tmp/evil.rb".to_string())
+        );
+        assert_eq!(
+            extract_script_path("node /tmp/evil.js"),
+            Some("/tmp/evil.js".to_string())
+        );
+        assert_eq!(
+            extract_script_path("nodejs /tmp/evil.js"),
+            Some("/tmp/evil.js".to_string())
         );
     }
 

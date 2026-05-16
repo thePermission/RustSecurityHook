@@ -158,6 +158,28 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         r"\s[^|;&\n]*?\b(uninstall|delete)\s+\S+",
         "Removes a Helm release and all its resources — possible cascading data loss",
     ),
+    // ---- Subprocess list bypass ----------------------------------------
+    // These rules catch the pattern `['kubectl', 'delete', ...]` (and the
+    // helm equivalent) that appears in Python/Ruby/Node subprocess calls
+    // where the binary and arguments are passed as a list rather than a
+    // shell string.  Because the binary and verb appear as quoted list
+    // elements, the command-level regex (which requires `kubectl\s`) does
+    // not fire.  `bin = None` so the pattern is matched against the full
+    // command / file content regardless of which outer program is used.
+    (
+        "k8s-subprocess-list",
+        "Kubernetes — Subprocess Bypass",
+        None,
+        r#"\[['"]kubectl['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]delete['"]"#,
+        "Kubectl delete in a subprocess argument list — bypasses command-level pattern checks",
+    ),
+    (
+        "helm-subprocess-list",
+        "Helm — Subprocess Bypass",
+        None,
+        r#"\[['"]helm['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:uninstall|delete)['"]"#,
+        "Helm uninstall/delete in a subprocess argument list — bypasses command-level pattern checks",
+    ),
     // ---- SQL — Destructive DML ------------------------------------
     // NOTE: These rules use `bin = None` so the SQL keyword check applies to any
     // Bash command regardless of the executing program. This intentionally blocks
@@ -489,11 +511,42 @@ mod tests {
 
     // ---- Cross-check: rule IDs are stable ----
 
+    // ---- Subprocess list bypass ----
+
+    #[test]
+    fn blocks_kubectl_delete_in_subprocess_list() {
+        // Python single-quoted list form
+        assert!(blocks("subprocess.run(['kubectl', 'delete', 'ns', 'prod'])"));
+        assert!(blocks("subprocess.run(['kubectl', 'delete', 'namespace', 'prod'])"));
+        // Double-quoted list form
+        assert!(blocks(r#"subprocess.run(["kubectl", "delete", "ns", "prod"])"#));
+        // Full python3 -c invocation
+        assert!(blocks(
+            r#"python3 -c "import subprocess; subprocess.run(['kubectl', 'delete', 'ns', 'prod'])""#
+        ));
+        // Other function names wrapping the list
+        assert!(blocks("execv(['kubectl', 'delete', 'deployment', 'myapp'])"));
+        // Non-destructive calls must not be blocked
+        assert!(!blocks("subprocess.run(['kubectl', 'get', 'pods'])"));
+        assert!(!blocks("subprocess.run(['kubectl', 'apply', '-f', 'deploy.yaml'])"));
+    }
+
+    #[test]
+    fn blocks_helm_uninstall_in_subprocess_list() {
+        assert!(blocks("subprocess.run(['helm', 'uninstall', 'postgres'])"));
+        assert!(blocks("subprocess.run(['helm', 'delete', 'postgres'])"));
+        assert!(blocks(r#"subprocess.run(["helm", "uninstall", "app"])"#));
+        // Safe helm calls must not be blocked
+        assert!(!blocks("subprocess.run(['helm', 'list'])"));
+        assert!(!blocks("subprocess.run(['helm', 'upgrade', 'app', 'chart'])"));
+    }
+
     #[test]
     fn rule_ids_are_distinct_and_match_expected_set() {
         let mut ids: Vec<&str> = rules().iter().map(|r| r.id).collect();
         ids.sort();
         let expected = vec![
+            "helm-subprocess-list",
             "helm-uninstall",
             "k8s-apply-remote",
             "k8s-attach",
@@ -512,6 +565,7 @@ mod tests {
             "k8s-force-delete",
             "k8s-proxy",
             "k8s-run-privileged",
+            "k8s-subprocess-list",
             "sql-alter-table",
             "sql-create-ddl",
             "sql-delete",
