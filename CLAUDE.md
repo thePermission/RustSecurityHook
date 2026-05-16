@@ -114,6 +114,8 @@ After a feature is fully implemented:
 
 If no spec/plan exists for a feature, write the ADR and behavior doc from scratch before closing the branch.
 
+3. Update `README.md` to reflect the current state of the code — verify that all described commands, flags, and behaviors match the actual implementation.
+
 ## Edition
 
 `Cargo.toml` uses `edition = "2024"` (set by `cargo init`). Requires a current stable Rust toolchain — installed via `rustup` (see `~/.cargo/env`).
