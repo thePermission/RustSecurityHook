@@ -158,6 +158,43 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         r"\s[^|;&\n]*?\b(uninstall|delete)\s+\S+",
         "Removes a Helm release and all its resources — possible cascading data loss",
     ),
+    // ---- SQL — Destructive DML ------------------------------------
+    (
+        "sql-delete",
+        "SQL — Destructive DML",
+        None,
+        r"(?i)\bDELETE\s+FROM\b",
+        "Deletes rows from a database table — irreversible without a backup",
+    ),
+    (
+        "sql-truncate",
+        "SQL — Destructive DML",
+        None,
+        r"(?i)\bTRUNCATE\b",
+        "Removes all rows from a table instantly — no WHERE clause, no rollback without a transaction",
+    ),
+    // ---- SQL — Destructive DDL ------------------------------------
+    (
+        "sql-drop",
+        "SQL — Destructive DDL",
+        None,
+        r"(?i)\bDROP\s+(?:TABLE|DATABASE|SCHEMA|INDEX|VIEW|TRIGGER|FUNCTION|PROCEDURE)\b",
+        "Permanently removes a database object and all its data",
+    ),
+    (
+        "sql-alter-table",
+        "SQL — Destructive DDL",
+        None,
+        r"(?i)\bALTER\s+TABLE\b",
+        "Modifies the schema of a table — column drops are irreversible",
+    ),
+    (
+        "sql-create-schema",
+        "SQL — Destructive DDL",
+        None,
+        r"(?i)\bCREATE\s+(?:TABLE|DATABASE|SCHEMA)\b",
+        "Creates a new database object — can permanently alter the schema",
+    ),
 ];
 
 static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
@@ -381,6 +418,48 @@ mod tests {
         assert!(!blocks("helm upgrade postgres bitnami/postgresql"));
     }
 
+    // ---- SQL — Destructive DML ----
+
+    #[test]
+    fn blocks_sql_delete() {
+        assert!(blocks(r#"psql -c "DELETE FROM users""#));
+        assert!(blocks(r#"mysql mydb -e "delete from orders where id=1""#));
+        assert!(blocks(r#"echo "DELETE FROM sessions" | psql"#));
+        assert!(!blocks(r#"psql -c "SELECT * FROM users""#));
+    }
+
+    #[test]
+    fn blocks_sql_truncate() {
+        assert!(blocks(r#"echo "TRUNCATE TABLE orders" | mysql"#));
+        assert!(blocks(r#"sqlite3 app.db "truncate orders""#));
+        assert!(!blocks(r#"mysql -e "INSERT INTO logs VALUES (1, 'ok')""#));
+    }
+
+    // ---- SQL — Destructive DDL ----
+
+    #[test]
+    fn blocks_sql_drop() {
+        assert!(blocks(r#"psql -c "DROP TABLE IF EXISTS legacy""#));
+        assert!(blocks(r#"mysql -e "drop database staging""#));
+        assert!(blocks(r#"psql -c "DROP SCHEMA public""#));
+        assert!(!blocks(r#"psql -c "CREATE INDEX idx ON users(email)""#));
+    }
+
+    #[test]
+    fn blocks_sql_alter_table() {
+        assert!(blocks(r#"psql -c "ALTER TABLE users ADD COLUMN email TEXT""#));
+        assert!(blocks(r#"mysql -e "alter table orders drop column foo""#));
+        assert!(!blocks(r#"sqlite3 app.db "UPDATE users SET name='x' WHERE id=1""#));
+    }
+
+    #[test]
+    fn blocks_sql_create_schema() {
+        assert!(blocks(r#"mysql -e "CREATE TABLE tmp (id INT)""#));
+        assert!(blocks(r#"psql -c "CREATE DATABASE test_db""#));
+        assert!(blocks(r#"psql -c "create schema analytics""#));
+        assert!(!blocks(r#"psql -c "CREATE INDEX idx_email ON users(email)""#));
+    }
+
     // ---- General negative ----
 
     #[test]
@@ -426,6 +505,11 @@ mod tests {
             "k8s-force-delete",
             "k8s-proxy",
             "k8s-run-privileged",
+            "sql-alter-table",
+            "sql-create-schema",
+            "sql-delete",
+            "sql-drop",
+            "sql-truncate",
         ];
         assert_eq!(ids, expected);
     }
