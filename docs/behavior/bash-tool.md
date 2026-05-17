@@ -71,6 +71,8 @@ For each segment, the `detect_checkers` function scans the content (command text
 
 For `Segment::Script`, the entire file contents are scanned — not just the command invocation line that triggered the script detection.
 
+Three checkers apply additional forbid checks beyond the regex blacklist: [[checker-kubectl|KubectlChecker]] and [[checker-helm|HelmChecker]] check the target cluster and namespace, [[checker-fallback|FallbackChecker]] checks the database host. See [[forbid-system]] for details.
+
 ## Step 3: Parallel Execution
 
 All checker instances (across all segments) are spawned as independent threads. They share two synchronization primitives:
