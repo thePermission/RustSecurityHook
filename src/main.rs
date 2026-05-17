@@ -117,6 +117,7 @@ fn list_rules() {
 
     let rules = blacklist::rules();
     let aliases = aliases::load();
+    let disabled_set = disabled::load();
 
     print_section("BLACKLIST RULES");
     if rules.is_empty() {
@@ -136,7 +137,11 @@ fn list_rules() {
             println!("  ▌ {} ({})", cat, items.len());
             println!("  ────────────────────────────────────────────────────────────");
             for r in items {
-                println!("    • {}", r.id);
+                if disabled_set.contains(r.id) {
+                    println!("    • {}  [DISABLED]", r.id);
+                } else {
+                    println!("    • {}", r.id);
+                }
                 println!("        reason  : {}", r.reason);
                 if let Some(b) = r.bin {
                     println!("        binary  : {b}");
