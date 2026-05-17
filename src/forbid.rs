@@ -22,7 +22,7 @@ use std::sync::LazyLock;
 use crate::aliases::{self, AliasMap};
 
 static FORBID_TOKENS: LazyLock<Vec<String>> = LazyLock::new(|| {
-    let mut tokens: Vec<String> = Vec::new();
+    let mut tokens = Vec::new();
     for tool in TOOLS {
         tokens.extend(aliases::aliases_for(&aliases::ALIASES, tool.bin_key));
     }
@@ -742,6 +742,15 @@ mod tests {
             databases: vec!["prod-db.example.com".to_string()],
         };
         assert!(!cfg.is_empty());
+    }
+
+    #[test]
+    fn check_returns_none_for_irrelevant_command() {
+        // Early-exit: no tool token → load() is never reached.
+        // Even if forbidden.json existed with entries, this must return None.
+        assert!(check("ls -la /tmp").is_none());
+        assert!(check("cargo build --release").is_none());
+        assert!(check("echo hello world").is_none());
     }
 
     #[test]
