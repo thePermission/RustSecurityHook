@@ -6,10 +6,11 @@
 
 `rsh` registers itself in `~/.claude/settings.json` (global) or `.claude/settings.json` (project-local). Claude Code invokes it before every `Bash`, `Write`, and `Edit` tool call. If `rsh` exits with code 2 the tool call is refused and the reason is shown to the model.
 
-Two independent pipelines decide whether to block:
+The check pipeline decides whether to block:
 
-1. **Blacklist** — regex rules matched against the command string or file content.
-2. **Forbid** — target-based rules that check which Kubernetes cluster/namespace or database host a command would reach.
+1. **Segment classification** — the command is split on shell separators into `Direct` and `Script` segments.
+2. **Tool detection** — each segment is scanned for known binary names; only the relevant checkers run.
+3. **Parallel checker threads** — each checker applies its blacklist rules and (for kubectl/helm) the forbid check. The first hit cancels all others.
 
 ```mermaid
 flowchart TD
@@ -17,30 +18,22 @@ flowchart TD
     B --> C{tool_name?}
 
     C -->|other tool| ALLOW([exit 0 — allow])
-    C -->|Bash| D{BinGroup fast-path:\nknown tool token present?}
     C -->|Write / Edit| W1{Protected\nrsh config path?}
-
-    D -->|no token| ALLOW
-    D -->|token present| E{Blacklist check\nregex rules}
-
-    E -->|match| BLOCK
-    E -->|no match| F{Forbid check\ncluster / namespace / db}
-
-    F -->|match| BLOCK
-    F -->|no match| G{Script paths\nin command?}
-
-    G -->|none| ALLOW
-    G -->|scripts found| H[Read script file\ncontent]
-    H --> I{Content scan\nblacklist + forbid per line}
-    I -->|match| BLOCK
-    I -->|no match| ALLOW
+    C -->|Bash| D[split_segments:\nshell separators]
 
     W1 -->|yes| BLOCK
-    W1 -->|no| W2{Content scan\nblacklist + forbid per line}
-    W2 -->|match| BLOCK
-    W2 -->|no match| ALLOW
+    W1 -->|no| D
 
-    BLOCK([exit 2 — block\nreason on stderr]) --> CC[Claude Code:\nshows reason to model\ntool call refused]
+    D --> E[For each segment:\ndetect_checkers]
+
+    E --> F[Spawn one thread\nper checker\nfail-fast stop flag]
+
+    F --> G{Any checker\nreturns a hit?}
+
+    G -->|yes — first hit wins| BLOCK([exit 2 — block\nreason on stderr])
+    G -->|no hits| ALLOW
+
+    BLOCK --> CC[Claude Code:\nshows reason to model\ntool call refused]
     ALLOW --> CC2[Claude Code:\ntool call proceeds]
 ```
 
@@ -71,6 +64,9 @@ Rationale for key design choices:
 | [adr/006-kubernetes-helm-initial-blacklist.md](adr/006-kubernetes-helm-initial-blacklist.md) | Initial Kubernetes and Helm blacklist rules — rationale and scope |
 | [adr/007-alias-system-design.md](adr/007-alias-system-design.md) | Alias system: storage format, auto-detection, and runtime caching |
 | [adr/008-rule-disable-enable.md](adr/008-rule-disable-enable.md) | Per-rule disable/enable toggle — storage, CLI, and testability design |
+| [adr/009-bingroup-fast-path.md](adr/009-bingroup-fast-path.md) | BinGroup fast-path — skip all regex checks when no known tool token is present |
+| [adr/010-criterion-benchmarks.md](adr/010-criterion-benchmarks.md) | Criterion benchmark suite for the run_check pipeline |
+| [adr/011-tool-checker-parallel-pipeline.md](adr/011-tool-checker-parallel-pipeline.md) | ToolChecker trait and parallel check pipeline — per-tool isolation, segment classification, fail-fast threads |
 
 ## Quick reference
 
