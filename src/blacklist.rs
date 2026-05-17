@@ -382,6 +382,28 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
         .collect()
 });
 
+struct BinGroup {
+    tokens: Vec<String>,
+    rule_indices: Vec<usize>,
+}
+
+static BIN_GROUPS: LazyLock<Vec<BinGroup>> = LazyLock::new(|| {
+    let mut map: std::collections::HashMap<Option<&'static str>, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, rule) in RULES.iter().enumerate() {
+        map.entry(rule.bin).or_default().push(i);
+    }
+    map.into_iter()
+        .map(|(bin, rule_indices)| BinGroup {
+            tokens: match bin {
+                Some(b) => aliases::aliases_for(&ALIASES, b),
+                None => vec![],
+            },
+            rule_indices,
+        })
+        .collect()
+});
+
 pub fn rules() -> &'static [Rule] {
     &RULES
 }
@@ -983,5 +1005,15 @@ mod tests {
         assert!(!blocks("ls ~/.config/"));
         assert!(!blocks("cat ~/.config/rsh-backup/file.json"));
         assert!(!blocks("ls ~/.config/rsh.old"));
+    }
+
+    #[test]
+    fn bin_groups_cover_all_rules() {
+        let grouped: usize = super::BIN_GROUPS.iter().map(|g| g.rule_indices.len()).sum();
+        assert_eq!(
+            grouped,
+            super::RULES.len(),
+            "every rule must appear in exactly one BinGroup"
+        );
     }
 }
