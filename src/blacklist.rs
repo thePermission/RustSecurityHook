@@ -364,8 +364,11 @@ pub fn rules() -> &'static [Rule] {
     &RULES
 }
 
-pub fn check(command: &str) -> Option<Hit> {
+pub fn check_filtered(command: &str, disabled: &std::collections::HashSet<String>) -> Option<Hit> {
     for rule in RULES.iter() {
+        if disabled.contains(rule.id) {
+            continue;
+        }
         if rule.regex.is_match(command) {
             return Some(Hit {
                 id: rule.id,
@@ -374,6 +377,10 @@ pub fn check(command: &str) -> Option<Hit> {
         }
     }
     None
+}
+
+pub fn check(command: &str) -> Option<Hit> {
+    check_filtered(command, &crate::disabled::DISABLED)
 }
 
 #[cfg(test)]
@@ -885,6 +892,34 @@ mod tests {
         assert_eq!(
             hit_id(r#"mysql -e "CREATE TABLE tmp (id INT)""#),
             Some("sql-create-ddl")
+        );
+    }
+
+    // ---- disabled-rule filtering ----
+
+    #[test]
+    fn check_filtered_skips_disabled_rule() {
+        use std::collections::HashSet;
+        let mut disabled = HashSet::new();
+        disabled.insert("k8s-delete-namespace".to_string());
+        assert!(check_filtered("kubectl delete namespace prod", &disabled).is_none());
+    }
+
+    #[test]
+    fn check_filtered_still_blocks_non_disabled_rules() {
+        use std::collections::HashSet;
+        let mut disabled = HashSet::new();
+        disabled.insert("k8s-delete-namespace".to_string());
+        assert!(check_filtered("kubectl delete pods --all", &disabled).is_some());
+    }
+
+    #[test]
+    fn check_filtered_empty_disabled_set_behaves_like_check() {
+        use std::collections::HashSet;
+        let disabled = HashSet::new();
+        assert_eq!(
+            check_filtered("kubectl delete namespace prod", &disabled).map(|h| h.id),
+            check("kubectl delete namespace prod").map(|h| h.id),
         );
     }
 }
