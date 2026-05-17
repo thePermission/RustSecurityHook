@@ -329,6 +329,28 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         r"[^|;&\n]*?\sdown\b",
         "Stops and removes all service containers (volumes kept without -v)",
     ),
+    // ---- rsh Self-Protection -------------------------------------------
+    (
+        "rsh-protect-disable",
+        "rsh Self-Protection",
+        Some("rsh"),
+        r"\s[^|;&\n]*?\brule\s+disable\b",
+        "Prevents disabling blacklist rules — would allow previously blocked commands through",
+    ),
+    (
+        "rsh-protect-forbid-remove",
+        "rsh Self-Protection",
+        Some("rsh"),
+        r"\s[^|;&\n]*?\bforbid\s+remove\b",
+        "Prevents removing entries from the forbid list — would re-allow forbidden clusters/namespaces",
+    ),
+    (
+        "rsh-protect-config-access",
+        "rsh Self-Protection",
+        None,
+        r"\.config[/\\]rsh\b",
+        "Prevents any Bash access to the rsh config directory — protects disabled-rules, aliases, and forbidden lists",
+    ),
 ];
 
 static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
@@ -851,6 +873,9 @@ mod tests {
             "k8s-proxy",
             "k8s-run-privileged",
             "k8s-subprocess-list",
+            "rsh-protect-config-access",
+            "rsh-protect-disable",
+            "rsh-protect-forbid-remove",
             "sql-alter-table",
             "sql-create-ddl",
             "sql-delete",
