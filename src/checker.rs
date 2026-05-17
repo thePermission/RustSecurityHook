@@ -159,4 +159,15 @@ mod tests {
             vec![script("/tmp/deploy.sh")]
         );
     }
+
+    #[test]
+    fn split_pipe_separator() {
+        assert_eq!(
+            split_segments("cat file.txt | bash /tmp/process.sh"),
+            vec![
+                direct("cat file.txt"),
+                script("/tmp/process.sh"),
+            ]
+        );
+    }
 }
