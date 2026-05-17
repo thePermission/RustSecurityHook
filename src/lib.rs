@@ -95,7 +95,7 @@ fn check_content_blocked(content: &str, label: &str) -> bool {
     false
 }
 
-pub fn script_paths_in(command: &str) -> Vec<String> {
+fn script_paths_in(command: &str) -> Vec<String> {
     command
         .split(|c| c == ';' || c == '\n')
         .flat_map(|s| s.split("&&"))
