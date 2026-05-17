@@ -1,3 +1,18 @@
+#[derive(Debug, Clone)]
+pub struct Hit {
+    pub rule_id: String,
+    /// Full human-readable block message (everything after "rsh blocked: ")
+    pub message: String,
+}
+
+pub trait ToolChecker: Send + Sync {
+    /// Binary names (including aliases) that indicate this checker is relevant.
+    /// An empty vec means "always run" (e.g. FallbackChecker).
+    fn bins(&self) -> Vec<String>;
+    /// Check `content` (a command string or script file contents) for violations.
+    fn check(&self, content: &str) -> Option<Hit>;
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Segment {
     Script { path: String },
