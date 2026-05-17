@@ -18,3 +18,4 @@ target
 
 # Claude Code local-only settings
 /.claude/settings.local.json
+/docs/.obsidian/
