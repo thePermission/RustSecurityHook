@@ -263,6 +263,12 @@ fn run_detect(targets: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn is_protected_path(path: &str) -> bool {
+    let p = path.replace('\\', "/");
+    // Match .config/rsh followed by end-of-string or a path separator
+    p.contains(".config/rsh/") || p.ends_with(".config/rsh")
+}
+
 fn run_hook() -> ExitCode {
     let mut buf = String::new();
     if std::io::stdin().read_to_string(&mut buf).is_err() {
@@ -281,19 +287,37 @@ fn run_hook() -> ExitCode {
             run_check(command)
         }
         "Write" => {
+            let file_path = input
+                .tool_input
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let content = input
                 .tool_input
                 .get("content")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
+            if is_protected_path(file_path) {
+                eprintln!("rsh blocked write to protected path: {file_path}");
+                return ExitCode::from(2);
+            }
             run_check_content(content)
         }
         "Edit" => {
+            let file_path = input
+                .tool_input
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let new_string = input
                 .tool_input
                 .get("new_string")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
+            if is_protected_path(file_path) {
+                eprintln!("rsh blocked edit of protected path: {file_path}");
+                return ExitCode::from(2);
+            }
             run_check_content(new_string)
         }
         _ => ExitCode::SUCCESS,
