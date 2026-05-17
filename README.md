@@ -20,6 +20,12 @@ Out of the box, `rsh` ships with 40 rules across eleven categories:
 
 Run `rsh list` to see all active rules with their full patterns and reasons.
 
+## Scope and limitations
+
+`rsh` is a safety net against **accidental** damage — the kind that happens when a model runs a destructive command because of a misunderstanding, an incorrect assumption, or simple inattentiveness. It is not a security boundary.
+
+Anyone who deliberately wants to bypass the hook can always do so: by unregistering it, by passing commands through an unmonitored shell, or by constructing input that avoids the patterns. If your threat model includes adversarial or malicious actors, `rsh` alone is not sufficient. Use it as one layer in a broader defence strategy, not as a hard guarantee.
+
 ## Installation
 
 All installers download a prebuilt binary from the latest [GitHub release](https://github.com/thePermission/RustSecurityHook/releases) and verify its SHA256 checksum before extracting. No build tools or Rust toolchain required.
