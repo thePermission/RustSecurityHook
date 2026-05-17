@@ -1,4 +1,5 @@
 use crate::{aliases, blacklist, forbid};
+use crate::shell;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -49,46 +50,31 @@ const INTERPRETERS: &[&str] = &[
 ];
 
 fn extract_script_path(cmd: &str) -> Option<String> {
-    let tokens: Vec<&str> = cmd.split_whitespace().collect();
-    let first = *tokens.first()?;
-    let basename = std::path::Path::new(first)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(first);
+    let tokens = shell::tokenize(cmd);
+    let first = tokens.first()?;
+    let basename = shell::normalize_command_name(first);
 
     if INTERPRETERS.contains(&basename) {
         return tokens
             .iter()
             .skip(1)
             .find(|t| !t.starts_with('-'))
-            .map(|s| strip_quotes(s));
+            .cloned();
     }
 
     if first == "source" || first == "." {
-        return tokens.get(1).map(|s| strip_quotes(s));
+        return tokens.get(1).cloned();
     }
 
-    let unquoted = strip_quotes(first);
-    if unquoted.starts_with("./")
-        || unquoted.starts_with('/')
-        || unquoted.ends_with(".sh")
-        || unquoted.ends_with(".bash")
+    if first.starts_with("./")
+        || first.starts_with('/')
+        || first.ends_with(".sh")
+        || first.ends_with(".bash")
     {
-        return Some(unquoted);
+        return Some(first.clone());
     }
 
     None
-}
-
-fn strip_quotes(s: &str) -> String {
-    let s = s.trim();
-    if (s.starts_with('"') && s.ends_with('"'))
-        || (s.starts_with('\'') && s.ends_with('\''))
-    {
-        s[1..s.len() - 1].to_string()
-    } else {
-        s.to_string()
-    }
 }
 
 pub struct KubectlChecker;
@@ -412,6 +398,14 @@ mod tests {
         assert_eq!(
             split_segments("bash \"/tmp/deploy.sh\""),
             vec![script("/tmp/deploy.sh")]
+        );
+    }
+
+    #[test]
+    fn split_script_path_with_spaces() {
+        assert_eq!(
+            split_segments("bash \"/tmp/prod deploy.sh\""),
+            vec![script("/tmp/prod deploy.sh")]
         );
     }
 

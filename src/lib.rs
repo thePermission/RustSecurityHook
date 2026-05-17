@@ -3,6 +3,7 @@ pub mod blacklist;
 pub mod checker;
 pub mod disabled;
 pub mod forbid;
+pub mod shell;
 
 use std::process::ExitCode;
 

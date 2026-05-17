@@ -20,6 +20,7 @@ use std::process::Command;
 use std::sync::LazyLock;
 
 use crate::aliases::{self, AliasMap};
+use crate::shell;
 
 static FORBID_TOKENS: LazyLock<Vec<String>> = LazyLock::new(|| {
     let mut tokens = Vec::new();
@@ -353,22 +354,10 @@ pub fn check_db(command: &str, cfg: &ForbidConfig) -> Option<Hit> {
     if cfg.databases.is_empty() {
         return None;
     }
-    let first = command.split_whitespace().next()?;
-    let basename = std::path::Path::new(first)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(first);
-    let basename = basename
-        .strip_suffix(".exe")
-        .or_else(|| basename.strip_suffix(".EXE"))
-        .unwrap_or(basename);
-    // Known limitation: `env VAR=val psql ...` and inline var assignments
-    // (`PGPASSWORD=x psql ...`) bypass this check because the first token is
-    // not the SQL client binary. This mirrors the existing kubectl/helm bypass
-    // for the same pattern and is an accepted trade-off.
-    if !SQL_CLIENTS.contains(&basename) {
+    let tokens = shell::tokenize(command);
+    let Some((_, _basename)) = find_command_token(&tokens, SQL_CLIENTS) else {
         return None;
-    }
+    };
     let host = extract_db_host(command)?;
     if cfg.databases.iter().any(|d| d.eq_ignore_ascii_case(&host)) {
         Some(Hit {
@@ -384,21 +373,12 @@ pub fn check_db(command: &str, cfg: &ForbidConfig) -> Option<Hit> {
 // ---- helpers ------------------------------------------------------------
 
 fn identify_tool<'a>(command: &str, aliases: &AliasMap) -> Option<&'a ToolSpec> {
-    let first = command.split_whitespace().next()?;
-    // Allow both bare names and absolute paths like /usr/local/bin/kubectl.
-    let basename = std::path::Path::new(first)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(first);
-    // Strip a Windows .exe suffix so detection works across platforms.
-    let basename = basename
-        .strip_suffix(".exe")
-        .or_else(|| basename.strip_suffix(".EXE"))
-        .unwrap_or(basename);
+    let tokens = shell::tokenize(command);
 
     for tool in TOOLS {
         let names = aliases::aliases_for(aliases, tool.bin_key);
-        if names.iter().any(|n| n == basename) {
+        let candidate_names: Vec<&str> = names.iter().map(String::as_str).collect();
+        if find_command_token(&tokens, &candidate_names).is_some() {
             return Some(tool);
         }
     }
@@ -409,10 +389,10 @@ fn identify_tool<'a>(command: &str, aliases: &AliasMap) -> Option<&'a ToolSpec> 
 /// `--flag=value` and `--flag value` (space-separated) forms. Returns the
 /// first match wins.
 fn extract_flag(command: &str, flags: &[&str]) -> Option<String> {
-    let tokens: Vec<&str> = command.split_whitespace().collect();
+    let tokens = shell::tokenize(command);
     let mut i = 0;
     while i < tokens.len() {
-        let tok = tokens[i];
+        let tok = tokens[i].as_str();
         for flag in flags {
             let with_eq = format!("{flag}=");
             if let Some(rest) = tok.strip_prefix(&with_eq) {
@@ -422,13 +402,75 @@ fn extract_flag(command: &str, flags: &[&str]) -> Option<String> {
             }
             if tok == *flag {
                 if let Some(next) = tokens.get(i + 1) {
-                    return Some(next.to_string());
+                    return Some(next.clone());
                 }
             }
         }
         i += 1;
     }
     None
+}
+
+fn find_command_token<'a>(tokens: &'a [String], candidates: &[&str]) -> Option<(usize, &'a str)> {
+    let mut i = 0;
+    while i < tokens.len() {
+        let token = tokens[i].as_str();
+        let name = shell::normalize_command_name(token);
+
+        if is_wrapper(name) {
+            i = skip_wrapper(tokens, i);
+            continue;
+        }
+        if shell::is_env_assignment(token) {
+            i += 1;
+            continue;
+        }
+        if candidates.contains(&name) {
+            return Some((i, name));
+        }
+        return None;
+    }
+    None
+}
+
+fn is_wrapper(token: &str) -> bool {
+    matches!(
+        token,
+        "sudo" | "env" | "command" | "builtin" | "nohup" | "time" | "nice" | "stdbuf"
+    )
+}
+
+fn skip_wrapper(tokens: &[String], index: usize) -> usize {
+    let name = shell::normalize_command_name(tokens[index].as_str());
+    let mut i = index + 1;
+
+    if name == "env" {
+        while i < tokens.len() {
+            let token = tokens[i].as_str();
+            if token == "--" {
+                return i + 1;
+            }
+            if token.starts_with('-') || shell::is_env_assignment(token) {
+                i += 1;
+                continue;
+            }
+            break;
+        }
+        return i;
+    }
+
+    while i < tokens.len() {
+        let token = tokens[i].as_str();
+        if token == "--" {
+            return i + 1;
+        }
+        if token.starts_with('-') {
+            i += 1;
+            continue;
+        }
+        break;
+    }
+    i
 }
 
 // ---- tests --------------------------------------------------------------
@@ -521,6 +563,18 @@ mod tests {
     }
 
     #[test]
+    fn check_db_blocks_host_flag_with_quotes() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        assert!(check_db("psql -h 'prod-db.example.com' mydb", &cfg).is_some());
+    }
+
+    #[test]
+    fn check_db_blocks_wrapped_sql_client() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        assert!(check_db("env PGPASSWORD=secret psql -h prod-db.example.com mydb", &cfg).is_some());
+    }
+
+    #[test]
     fn check_db_allows_non_forbidden_host() {
         let cfg = cfg_databases(&["prod-db.example.com"]);
         assert!(check_db("psql -h staging-db.example.com mydb", &cfg).is_none());
@@ -593,6 +647,12 @@ mod tests {
     }
 
     #[test]
+    fn identifies_kubectl_behind_wrapper() {
+        assert!(identify_tool("sudo kubectl get pods", &empty_aliases()).is_some());
+        assert!(identify_tool("/usr/bin/env kubectl get pods", &empty_aliases()).is_some());
+    }
+
+    #[test]
     fn ignores_non_k8s_commands() {
         let cmd = "ls -la";
         assert!(identify_tool(cmd, &empty_aliases()).is_none());
@@ -635,6 +695,34 @@ mod tests {
         .expect("should block");
         assert_eq!(hit.kind, HitKind::Namespace);
         assert_eq!(hit.value, "kube-system");
+    }
+
+    #[test]
+    fn blocks_when_namespace_flag_is_quoted() {
+        let cfg = cfg_namespaces(&["kube-system"]);
+        let hit = check_with(
+            "kubectl -n 'kube-system' get pods",
+            &empty_aliases(),
+            &cfg,
+            &no_kube(),
+        )
+        .expect("should block");
+        assert_eq!(hit.kind, HitKind::Namespace);
+        assert_eq!(hit.value, "kube-system");
+    }
+
+    #[test]
+    fn blocks_when_wrapped_kubectl_context_is_forbidden() {
+        let cfg = cfg_clusters(&["prod-eu"]);
+        let hit = check_with(
+            "sudo kubectl --context=prod-eu get pods",
+            &empty_aliases(),
+            &cfg,
+            &no_kube(),
+        )
+        .expect("should block");
+        assert_eq!(hit.kind, HitKind::Cluster);
+        assert_eq!(hit.value, "prod-eu");
     }
 
     #[test]
