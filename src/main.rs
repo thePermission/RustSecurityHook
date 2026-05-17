@@ -3,8 +3,9 @@ use rsh::{is_protected_path, run_check, run_check_content};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use serde_json::json;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 #[derive(Deserialize)]
@@ -15,14 +16,60 @@ struct HookInput {
     tool_input: serde_json::Value,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HookTarget {
+    Claude,
+    Codex,
+}
+
+impl HookTarget {
+    fn label(self) -> &'static str {
+        match self {
+            HookTarget::Claude => "claude",
+            HookTarget::Codex => "codex",
+        }
+    }
+
+    fn global_path(self, home: &Path) -> PathBuf {
+        match self {
+            HookTarget::Claude => home.join(".claude/settings.json"),
+            HookTarget::Codex => home.join(".codex/hooks.json"),
+        }
+    }
+
+    fn local_path(self, cwd: &Path) -> PathBuf {
+        match self {
+            HookTarget::Claude => cwd.join(".claude/settings.json"),
+            HookTarget::Codex => cwd.join(".codex/hooks.json"),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct InitOptions {
+    global: bool,
+    requested_targets: Option<Vec<HookTarget>>,
+}
+
+#[derive(Debug)]
+struct InstallResult {
+    target: HookTarget,
+    path: PathBuf,
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("init") => {
-            let global = args.iter().skip(2).any(|a| a == "-g" || a == "--global");
-            match init_hook(global) {
-                Ok(path) => {
-                    eprintln!("rsh hook installed in {}", path.display());
+            match parse_init_options(&args[2..]).and_then(init_hooks) {
+                Ok(results) => {
+                    for result in &results {
+                        eprintln!(
+                            "rsh hook installed for {} in {}",
+                            result.target.label(),
+                            result.path.display()
+                        );
+                    }
                     let _ = run_detect(&rule_bins());
                     ExitCode::SUCCESS
                 }
@@ -87,9 +134,11 @@ fn print_help() {
         "rsh - Rust Security Hook\n\
          \n\
          USAGE:\n\
-           rsh                       Hook mode: reads Claude Code PreToolUse JSON from stdin\n\
-           rsh init [-g|--global]    Register rsh as PreToolUse hook in settings.json\n\
-                                     (-g writes to ~/.claude/settings.json, otherwise ./.claude/settings.json)\n\
+           rsh                       Hook mode: reads Claude/Codex PreToolUse JSON from stdin\n\
+           rsh init [-g|--global] [--tool claude|codex|all]\n\
+                                     Register rsh hooks for detected tools.\n\
+                                     Claude: ~/.claude/settings.json or ./.claude/settings.json\n\
+                                     Codex:  ~/.codex/hooks.json or ./.codex/hooks.json\n\
            rsh check \"<command>\"    Run the blacklist against a literal command string\n\
            rsh list                  Show all configured blacklist rules and aliases\n\
            rsh alias <cmd> <alias>   Register that <alias> on this system points to <cmd>\n\
@@ -266,7 +315,11 @@ fn run_hook() -> ExitCode {
     if std::io::stdin().read_to_string(&mut buf).is_err() {
         return ExitCode::SUCCESS;
     }
-    let Ok(input) = serde_json::from_str::<HookInput>(&buf) else {
+    run_hook_from_str(&buf)
+}
+
+fn run_hook_from_str(input: &str) -> ExitCode {
+    let Ok(input) = serde_json::from_str::<HookInput>(input) else {
         return ExitCode::SUCCESS;
     };
     match input.tool_name.as_str() {
@@ -311,6 +364,14 @@ fn run_hook() -> ExitCode {
                 return ExitCode::from(2);
             }
             run_check_content(new_string)
+        }
+        "apply_patch" => {
+            let command = input
+                .tool_input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            run_check_content(command)
         }
         _ => ExitCode::SUCCESS,
     }
@@ -548,16 +609,6 @@ fn run_forbid(args: &[String]) -> ExitCode {
     }
 }
 
-fn settings_path(global: bool) -> Result<PathBuf> {
-    if global {
-        let home = aliases::home_dir().context("could not determine home directory")?;
-        Ok(home.join(".claude/settings.json"))
-    } else {
-        let cwd = std::env::current_dir().context("getting current dir")?;
-        Ok(cwd.join(".claude/settings.json"))
-    }
-}
-
 fn hook_command() -> String {
     // Prefer the bare name "rsh" when the binary is reachable via $PATH
     // (e.g. the user installed it through `cargo install --path .`).
@@ -593,8 +644,78 @@ fn which(name: &str) -> Option<PathBuf> {
     None
 }
 
-fn init_hook(global: bool) -> Result<PathBuf> {
-    let path = settings_path(global)?;
+fn parse_init_options(args: &[String]) -> Result<InitOptions> {
+    let mut options = InitOptions::default();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-g" | "--global" => {
+                options.global = true;
+                i += 1;
+            }
+            "--tool" => {
+                let Some(value) = args.get(i + 1) else {
+                    anyhow::bail!("missing value for --tool (expected claude, codex, or all)");
+                };
+                options.requested_targets = Some(parse_requested_targets(value)?);
+                i += 2;
+            }
+            other => anyhow::bail!("unknown init argument: {other}"),
+        }
+    }
+    Ok(options)
+}
+
+fn parse_requested_targets(value: &str) -> Result<Vec<HookTarget>> {
+    match value {
+        "claude" => Ok(vec![HookTarget::Claude]),
+        "codex" => Ok(vec![HookTarget::Codex]),
+        "all" => Ok(vec![HookTarget::Claude, HookTarget::Codex]),
+        _ => anyhow::bail!("invalid --tool value '{value}' (expected claude, codex, or all)"),
+    }
+}
+
+fn init_hooks(options: InitOptions) -> Result<Vec<InstallResult>> {
+    let home = aliases::home_dir().context("could not determine home directory")?;
+    let cwd = std::env::current_dir().context("getting current dir")?;
+    let targets = match options.requested_targets {
+        Some(targets) => targets,
+        None => detect_targets(&home, &cwd),
+    };
+    if targets.is_empty() {
+        anyhow::bail!(
+            "no supported tool detected; install Claude or Codex first, or specify `rsh init --tool claude|codex`"
+        );
+    }
+
+    let mut results = Vec::new();
+    for target in targets {
+        let path = install_hook(target, options.global, &home, &cwd)?;
+        results.push(InstallResult { target, path });
+    }
+    Ok(results)
+}
+
+fn detect_targets(home: &Path, cwd: &Path) -> Vec<HookTarget> {
+    let mut targets = Vec::new();
+    if which("claude").is_some()
+        || home.join(".claude").exists()
+        || cwd.join(".claude").exists()
+    {
+        targets.push(HookTarget::Claude);
+    }
+    if which("codex").is_some() || home.join(".codex").exists() || cwd.join(".codex").exists() {
+        targets.push(HookTarget::Codex);
+    }
+    targets
+}
+
+fn install_hook(target: HookTarget, global: bool, home: &Path, cwd: &Path) -> Result<PathBuf> {
+    let path = if global {
+        target.global_path(home)
+    } else {
+        target.local_path(cwd)
+    };
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
@@ -602,43 +723,16 @@ fn init_hook(global: bool) -> Result<PathBuf> {
     let mut value: serde_json::Value = if path.exists() {
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
-        serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({}))
+        serde_json::from_str(&text).unwrap_or_else(|_| json!({}))
     } else {
-        serde_json::json!({})
+        json!({})
     };
 
     let cmd = hook_command();
-
-    let hooks = value
-        .as_object_mut()
-        .context("settings.json is not an object")?
-        .entry("hooks")
-        .or_insert_with(|| serde_json::json!({}));
-    let pre = hooks
-        .as_object_mut()
-        .context("hooks is not an object")?
-        .entry("PreToolUse")
-        .or_insert_with(|| serde_json::json!([]));
-    let arr = pre.as_array_mut().context("PreToolUse is not an array")?;
-
-    // Remove stale entries (old "Bash"-only installs or any entry referencing our command).
-    arr.retain(|e| {
-        !e.get("hooks")
-            .and_then(|h| h.as_array())
-            .map(|hs| {
-                hs.iter().any(|h| {
-                    h.get("command").and_then(|c| c.as_str()) == Some(cmd.as_str())
-                })
-            })
-            .unwrap_or(false)
-    });
-    arr.push(serde_json::json!({
-        "matcher": "",
-        "hooks": [{
-            "type": "command",
-            "command": cmd
-        }]
-    }));
+    match target {
+        HookTarget::Claude => install_claude_hook(&mut value, &cmd)?,
+        HookTarget::Codex => install_codex_hook(&mut value, &cmd)?,
+    }
 
     let pretty = serde_json::to_string_pretty(&value)?;
     std::fs::write(&path, pretty)
@@ -646,3 +740,116 @@ fn init_hook(global: bool) -> Result<PathBuf> {
     Ok(path)
 }
 
+fn install_claude_hook(value: &mut serde_json::Value, cmd: &str) -> Result<()> {
+    let hooks = value
+        .as_object_mut()
+        .context("settings.json is not an object")?
+        .entry("hooks")
+        .or_insert_with(|| json!({}));
+    let pre = hooks
+        .as_object_mut()
+        .context("hooks is not an object")?
+        .entry("PreToolUse")
+        .or_insert_with(|| json!([]));
+    let arr = pre.as_array_mut().context("PreToolUse is not an array")?;
+
+    arr.retain(|e| {
+        !e.get("hooks")
+            .and_then(|h| h.as_array())
+            .map(|hs| {
+                hs.iter()
+                    .any(|h| h.get("command").and_then(|c| c.as_str()) == Some(cmd))
+            })
+            .unwrap_or(false)
+    });
+    arr.push(json!({
+        "matcher": "",
+        "hooks": [{
+            "type": "command",
+            "command": cmd
+        }]
+    }));
+    Ok(())
+}
+
+fn install_codex_hook(value: &mut serde_json::Value, cmd: &str) -> Result<()> {
+    let hooks = value
+        .as_object_mut()
+        .context("hooks.json is not an object")?
+        .entry("hooks")
+        .or_insert_with(|| json!({}));
+    let pre = hooks
+        .as_object_mut()
+        .context("hooks is not an object")?
+        .entry("PreToolUse")
+        .or_insert_with(|| json!([]));
+    let arr = pre.as_array_mut().context("PreToolUse is not an array")?;
+
+    arr.retain(|e| e.get("command").and_then(|c| c.as_str()) != Some(cmd));
+    arr.push(json!({
+        "matcher": "",
+        "command": cmd
+    }));
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_init_options_defaults_to_auto() {
+        let opts = parse_init_options(&[]).unwrap();
+        assert!(!opts.global);
+        assert!(opts.requested_targets.is_none());
+    }
+
+    #[test]
+    fn parse_init_options_accepts_global_and_tool() {
+        let opts = parse_init_options(&["--global".into(), "--tool".into(), "codex".into()]).unwrap();
+        assert!(opts.global);
+        assert_eq!(opts.requested_targets, Some(vec![HookTarget::Codex]));
+    }
+
+    #[test]
+    fn detect_targets_uses_existing_config_dirs() {
+        let home = tempfile::tempdir().unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join(".claude")).unwrap();
+        std::fs::create_dir_all(cwd.path().join(".codex")).unwrap();
+
+        let targets = detect_targets(home.path(), cwd.path());
+        assert_eq!(targets, vec![HookTarget::Claude, HookTarget::Codex]);
+    }
+
+    #[test]
+    fn install_claude_hook_is_idempotent() {
+        let mut value = json!({});
+        install_claude_hook(&mut value, "rsh").unwrap();
+        install_claude_hook(&mut value, "rsh").unwrap();
+
+        let arr = value["hooks"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["hooks"][0]["command"], "rsh");
+    }
+
+    #[test]
+    fn install_codex_hook_is_idempotent() {
+        let mut value = json!({});
+        install_codex_hook(&mut value, "rsh").unwrap();
+        install_codex_hook(&mut value, "rsh").unwrap();
+
+        let arr = value["hooks"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["command"], "rsh");
+    }
+
+    #[test]
+    fn run_hook_accepts_codex_apply_patch_payload() {
+        let input = r#"{
+            "tool_name":"apply_patch",
+            "tool_input":{"command":"*** Begin Patch\n*** End Patch\n"}
+        }"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::SUCCESS);
+    }
+}

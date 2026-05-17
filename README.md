@@ -1,6 +1,6 @@
 # rsh – Rust Security Hook
 
-A lean Claude Code `PreToolUse` hook. Before every `Bash` tool call, `rsh` checks the command against a blacklist and blocks it on a match by exiting with a reason on stderr. Claude Code treats that as a refused tool call and surfaces the message back to the model.
+A lean Claude Code and Codex `PreToolUse` hook. Before every protected tool call, `rsh` checks the command against a blacklist and blocks it on a match by exiting with a reason on stderr. Claude Code and Codex treat that as a refused tool call and surface the message back to the model.
 
 Out of the box, `rsh` ships with 40 rules across eleven categories:
 
@@ -59,7 +59,7 @@ If you prefer to install manually, the [releases page](https://github.com/thePer
 
 ```sh
 # Linux x86_64 example
-TAG=v0.2.0
+TAG=v0.7.0
 curl -fsSL -O https://github.com/thePermission/RustSecurityHook/releases/download/$TAG/rsh-x86_64-unknown-linux-musl.tar.xz
 curl -fsSL -O https://github.com/thePermission/RustSecurityHook/releases/download/$TAG/rsh-x86_64-unknown-linux-musl.tar.xz.sha256
 sha256sum -c rsh-x86_64-unknown-linux-musl.tar.xz.sha256
@@ -73,23 +73,30 @@ rsh --version
 rsh --help
 ```
 
-## Register as a Claude Code hook
+## Register as a Claude Code or Codex hook
 
 Run once after installation:
 
 ```sh
-rsh init -g          # global, in ~/.claude/settings.json
-# or project-local:
-rsh init             # in ./.claude/settings.json of the current directory
+rsh init -g                  # auto-detect and install globally
+rsh init                     # auto-detect and install project-locally
+rsh init --tool claude       # force Claude only
+rsh init --tool codex        # force Codex only
+rsh init --tool all -g       # install both globally
 ```
+
+Auto-detection installs into every supported tool found on the machine:
+
+- Claude: `~/.claude/settings.json` or `./.claude/settings.json`
+- Codex: `~/.codex/hooks.json` or `./.codex/hooks.json`
 
 `init` is idempotent (running it multiple times never duplicates entries) and afterwards automatically scans your `$PATH` for known aliases of `kubectl` and other rule binaries.
 
-To remove the hook, delete the corresponding `PreToolUse` entry from `settings.json`.
+To remove the hook, delete the corresponding `PreToolUse` entry from the relevant config file.
 
 ## Usage
 
-`rsh` is primarily invoked automatically by Claude Code — after `rsh init` you don't need to do anything else. For manual inspection:
+`rsh` is primarily invoked automatically by Claude Code or Codex — after `rsh init` you don't need to do anything else. For manual inspection:
 
 ```sh
 rsh list                                # show all rules and aliases
@@ -119,13 +126,14 @@ rsh detect-aliases helm      # auto-scan for a specific command
 
 Use `rsh list` at any time to see which aliases are baked into the rules.
 
-## Forbidden clusters and namespaces
+## Forbidden clusters, namespaces, and databases
 
-Beyond the regex blacklist, `rsh` can block any kubectl- or helm-aliased command that targets a forbidden cluster or namespace. This catches commands that aren't destructive on their own but should never run against a specific environment (e.g. anything against the production cluster).
+Beyond the regex blacklist, `rsh` can block any kubectl- or helm-aliased command that targets a forbidden cluster or namespace, and any supported SQL client command that targets a forbidden database host. This catches commands that aren't destructive on their own but should never run against a specific environment (e.g. anything against the production cluster or a production database).
 
 ```sh
 rsh forbid cluster prod-eu          # block commands hitting context "prod-eu"
 rsh forbid namespace kube-system    # block commands hitting namespace "kube-system"
+rsh forbid database prod-db.host    # block SQL clients targeting this host
 rsh forbid list                     # show current forbid lists
 rsh forbid remove cluster prod-eu   # remove an entry
 ```
@@ -136,13 +144,16 @@ When a kubectl/helm command runs, `rsh` checks:
 2. Does it contain `--namespace=<value>` or `-n <value>`? Compare with the forbidden namespace list.
 3. If neither flag is present, `rsh` asks `kubectl` for the current context (`kubectl config current-context`) and the current namespace, and checks those.
 
+When a supported SQL client runs, `rsh` extracts the target hostname from a connection URL or a `-h` / `--host` flag and compares it with the forbidden database list.
+
 Storage: `~/.config/rsh/forbidden.json` (or the platform equivalent).
 
 ## Command overview
 
 ```text
-rsh                          Hook mode (invoked by Claude Code)
-rsh init [-g|--global]       Register the hook in settings.json
+rsh                          Hook mode (invoked by Claude Code or Codex)
+rsh init [-g|--global] [--tool claude|codex|all]
+                             Register the hook in the matching config file(s)
 rsh check "<command>"        Run the blacklist + forbid checks against a command
 rsh list                     Show all rules, forbidden entries, and aliases
 rsh alias <cmd> <alias>      Register an alias

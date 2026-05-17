@@ -10,25 +10,26 @@ aliases:
 
 # rsh Documentation
 
-`rsh` (Rust Security Hook) is a Claude Code PreToolUse hook that blocks dangerous shell
-commands, file writes, and script executions before Claude Code can carry them out.
+`rsh` (Rust Security Hook) is a Claude Code and Codex PreToolUse hook that blocks dangerous
+shell commands, file writes, and script executions before those tools can carry them out.
 
 ## How it works
 
-`rsh` registers itself in `~/.claude/settings.json` (global) or `.claude/settings.json`
-(project-local). Claude Code invokes it before every `Bash`, `Write`, and `Edit` tool call.
-If `rsh` exits with code 2 the tool call is refused and the reason is shown to the model.
+`rsh` registers itself in Claude `settings.json` or Codex `hooks.json`, either globally or
+project-locally depending on `rsh init`. Claude invokes it before `Bash`, `Write`, and `Edit`
+tool calls. Codex invokes it before `Bash` and `apply_patch` tool calls. If `rsh` exits with
+code 2 the tool call is refused and the reason is shown to the model.
 
 The core idea: **each tool family is one category, and that category owns all checks for
 that tool** — regex rules, forbid checks, and alias expansion.
 
 ```mermaid
 flowchart TD
-    A([Claude Code:\nBash / Write / Edit tool call]) --> B[rsh PreToolUse hook\nstdin: JSON with tool_name + tool_input]
+    A([Claude Code / Codex:\nprotected tool call]) --> B[rsh PreToolUse hook\nstdin: JSON with tool_name + tool_input]
     B --> C{tool_name?}
-ob
     C -->|other tool| ALLOW([exit 0 — allow])
     C -->|Write / Edit| W1{Protected\nrsh config path?}
+    C -->|apply_patch| D
     C -->|Bash| D[split_segments:\nshell separators]
 
     W1 -->|yes| BLOCK
@@ -43,18 +44,18 @@ ob
     G -->|yes — first hit wins| BLOCK([exit 2 — block\nreason on stderr])
     G -->|no hits| ALLOW
 
-    BLOCK --> CC[Claude Code:\nshows reason to model\ntool call refused]
-    ALLOW --> CC2[Claude Code:\ntool call proceeds]
+    BLOCK --> CC[Caller:\nshows reason to model\ntool call refused]
+    ALLOW --> CC2[Caller:\ntool call proceeds]
 ```
 
-## Claude Code tool handling
+## Tool handling
 
 How each intercepted tool call is processed end-to-end:
 
 | Page | What it explains |
 |---|---|
 | [[bash-tool\|bash-tool.md]] | Segment splitting, script detection, chained commands, parallel checker pipeline |
-| [[write-edit-tool\|write-edit-tool.md]] | Protected path check, content scan for Write and Edit calls |
+| [[write-edit-tool\|write-edit-tool.md]] | Protected path check, content scan for Claude `Write`/`Edit` and Codex `apply_patch` |
 
 ## Tool categories (checkers)
 
@@ -96,8 +97,9 @@ Each tool family has its own checker with its own set of measures:
 ## Quick reference
 
 ```sh
-rsh init -g                        # register hook globally
-rsh init                           # register hook in current project
+rsh init -g                        # auto-detect and register hooks globally
+rsh init                           # auto-detect and register hooks in current project
+rsh init --tool codex              # force Codex-only installation
 rsh check "kubectl delete ns prod" # test a command manually
 rsh list                           # show all rules, forbid entries, and aliases
 rsh alias kubectl k                # register an alias

@@ -1,5 +1,5 @@
 ---
-title: Write and Edit Tool Processing
+title: Write, Edit, and Apply Patch Tool Processing
 tags:
   - rsh/tool-handling
   - rsh/pipeline
@@ -8,17 +8,17 @@ aliases:
   - edit tool
 ---
 
-# Write and Edit Tool Processing
+# Write, Edit, and Apply Patch Tool Processing
 
 ## Overview
 
-`rsh` intercepts the Claude Code `Write` and `Edit` tools to prevent a model from writing (or modifying) a file that contains forbidden commands — such as `kubectl delete` or `helm uninstall` — and then executing it from a subsequent `Bash` tool call.
+`rsh` intercepts the Claude Code `Write` and `Edit` tools and the Codex `apply_patch` tool to prevent a model from writing or modifying content that contains forbidden commands — such as `kubectl delete` or `helm uninstall` — and then executing it from a subsequent `Bash` tool call.
 
-Both tools undergo a two-stage check: first, the target file path is validated to ensure it is not part of the `rsh` configuration directory; second, the file content is scanned against the full ToolChecker pipeline.
+Claude `Write` and `Edit` undergo a two-stage check: first, the target file path is validated to ensure it is not part of the `rsh` configuration directory; second, the file content is scanned against the full ToolChecker pipeline. Codex `apply_patch` runs the content scan stage over the patch text; it does not currently have a separate `file_path` field in the hook payload.
 
 ## Hook Input Schema
 
-Claude Code sends the hook a JSON event with `tool_name` and `tool_input` fields:
+Claude Code and Codex send the hook a JSON event with `tool_name` and `tool_input` fields:
 
 ### Write
 
@@ -44,9 +44,20 @@ Claude Code sends the hook a JSON event with `tool_name` and `tool_input` fields
 }
 ```
 
+### Codex `apply_patch`
+
+```json
+{
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Update File: deploy.sh\n@@\n-kubectl get pods\n+kubectl delete ns prod\n*** End Patch\n"
+  }
+}
+```
+
 ## Stage 1: Protected Path Check
 
-Before scanning content, `rsh` verifies that the target file path is not a protected path. This check is hardcoded in `run_hook()` and cannot be bypassed by disabling any blacklist rule.
+Before scanning content, `rsh` verifies that the target file path is not a protected path. This check is hardcoded in `run_hook()` for Claude `Write` and `Edit` and cannot be bypassed by disabling any blacklist rule.
 
 ### Protected Paths
 
@@ -87,7 +98,7 @@ The entire tool call is refused (exit code 2).
 
 ## Stage 2: Content Scan
 
-If the path check passes, the payload is scanned using the full ToolChecker pipeline — identical to the [[bash-tool|Bash tool processing pipeline]].
+If the path check passes, the payload is scanned using the full ToolChecker pipeline. Codex `apply_patch` enters here directly and scans `tool_input.command` as content.
 
 ### What is scanned
 
@@ -95,6 +106,7 @@ If the path check passes, the payload is scanned using the full ToolChecker pipe
 |---|---|---|
 | `Write` | `content` | The entire file being written to disk |
 | `Edit` | `new_string` | Only the replacement text, not the entire file |
+| `apply_patch` | `command` | The patch text itself, scanned as content |
 
 ### Pipeline Stages
 
@@ -116,19 +128,19 @@ The entire tool call is refused (exit code 2).
 
 ## Tools That Pass Through
 
-All other Claude Code tool names — `Read`, `Glob`, `Grep`, `Task`, `Bash`, `NotebookEdit`, `Monitor`, etc. — are passed through without inspection (exit code 0).
+All other tool names are passed through without inspection (exit code 0).
 
-This fail-open behavior is intentional: an unrecognized tool name must not block the session. Only `Bash`, `Write`, and `Edit` trigger content checks.
+This fail-open behavior is intentional: an unrecognized tool name must not block the session. Only `Bash`, Claude `Write`/`Edit`, and Codex `apply_patch` trigger content checks.
 
 ## Exit Codes
 
 The hook respects this contract:
 
-- **Exit 0**: Write/Edit is allowed. Claude Code proceeds with the tool.
-- **Exit 2**: Write/Edit is blocked. Claude Code surfaces the stderr message to the model and refuses the tool call.
+- **Exit 0**: The edit operation is allowed. The caller proceeds with the tool.
+- **Exit 2**: The edit operation is blocked. The caller surfaces the stderr message to the model and refuses the tool call.
 
 ## See Also
 
-- [[bash-tool]] — The ToolChecker pipeline used by Bash, Write, and Edit
+- [[bash-tool]] — The ToolChecker pipeline used by Bash and content-scanned edit tools
 - [[forbid-system]] — The cluster, namespace, and database forbid lists
 - [[rsh-self-protection]] — How `rsh` prevents modification of its own configuration

@@ -12,11 +12,11 @@ aliases:
 
 ## Overview
 
-When Claude Code invokes the `Bash` tool, the `rsh` hook receives a JSON event containing the command to be executed. This document describes how `rsh` processes that command through the checker pipeline and produces an allow or block decision.
+When Claude Code or Codex invokes the `Bash` tool, the `rsh` hook receives a JSON event containing the command to be executed. This document describes how `rsh` processes that command through the checker pipeline and produces an allow or block decision.
 
 ## Step 0: Hook Input
 
-Claude Code sends the hook a JSON event with the following structure:
+Claude Code and Codex send the hook a JSON event with the following structure:
 
 ```json
 {
@@ -121,9 +121,9 @@ The `split_segments` function produces three segments:
 
 If `/tmp/deploy.sh` contains the text `kubectl delete ns prod`, the following occurs:
 
-1. Three checkers are spawned for segment 1 (`KubectlChecker`, `FallbackChecker`, and `DockerChecker`).
+1. Two checkers are spawned for segment 1 (`KubectlChecker` and `FallbackChecker`).
 2. Two checkers are spawned for segment 2 (at minimum `KubectlChecker` and `FallbackChecker`; if the script file also contains `docker`, then `DockerChecker` too).
-3. One checker is spawned for segment 3 (`DockerChecker` and `FallbackChecker`).
+3. Two checkers are spawned for segment 3 (`DockerChecker` and `FallbackChecker`).
 
 When any thread scanning segment 2 runs `KubectlChecker.check()` against the script contents and finds `kubectl delete ns prod`, it sets the stop flag and sends the hit. Remaining threads observe the flag and exit without work. The hook returns exit code 2 with a message on stderr — the entire Bash call is blocked, even though segment 1 and segment 3 were individually safe.
 
@@ -131,7 +131,7 @@ When any thread scanning segment 2 runs `KubectlChecker.check()` against the scr
 
 The hook respects this contract:
 
-- **Exit 0**: Command is allowed. Claude Code proceeds with the Bash tool.
-- **Exit 2**: Command is blocked. Claude Code surfaces the stderr message to the model and refuses the tool call.
+- **Exit 0**: Command is allowed. The caller proceeds with the Bash tool.
+- **Exit 2**: Command is blocked. The caller surfaces the stderr message to the model and refuses the tool call.
 
 Other exit codes are not used; they would be interpreted as errors rather than explicit blocks.
