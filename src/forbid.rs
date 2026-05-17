@@ -21,6 +21,19 @@ use std::sync::LazyLock;
 
 use crate::aliases::{self, AliasMap};
 
+static FORBID_TOKENS: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut tokens: Vec<String> = Vec::new();
+    for tool in TOOLS {
+        tokens.extend(aliases::aliases_for(&aliases::ALIASES, tool.bin_key));
+    }
+    for &client in SQL_CLIENTS {
+        tokens.extend(aliases::aliases_for(&aliases::ALIASES, client));
+    }
+    tokens.sort();
+    tokens.dedup();
+    tokens
+});
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ForbidConfig {
     #[serde(default)]
@@ -232,6 +245,9 @@ impl KubeEnv for KubectlEnv {
 /// Default check used by the hook. Uses the process-wide alias cache, the
 /// on-disk forbid config, and live `kubectl` for fallback lookups.
 pub fn check(command: &str) -> Option<Hit> {
+    if !FORBID_TOKENS.iter().any(|t| command.contains(t.as_str())) {
+        return None;
+    }
     let cfg = load();
     if cfg.is_empty() {
         return None;
