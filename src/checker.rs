@@ -85,9 +85,83 @@ fn strip_quotes(s: &str) -> String {
     }
 }
 
+use crate::{aliases, blacklist, forbid};
+#[allow(unused_imports)]
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc::Sender,
+};
+
+pub struct KubectlChecker;
+
+impl ToolChecker for KubectlChecker {
+    fn bins(&self) -> Vec<String> {
+        aliases::aliases_for(&aliases::ALIASES, "kubectl")
+    }
+
+    fn check(&self, content: &str) -> Option<Hit> {
+        if let Some(h) = blacklist::check_for_bin(content, Some("kubectl")) {
+            return Some(Hit {
+                rule_id: h.id.to_string(),
+                message: format!("(rule: {}): {}", h.id, h.reason),
+            });
+        }
+        let cfg = forbid::load();
+        if cfg.is_empty() {
+            return None;
+        }
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(h) =
+                forbid::check_with(line, &aliases::ALIASES, &cfg, &forbid::KubectlEnv)
+            {
+                let origin =
+                    if h.from_current_context { " (current kubeconfig)" } else { "" };
+                let (rule_id, message) = match &h.kind {
+                    forbid::HitKind::Cluster => (
+                        "forbid-cluster".to_string(),
+                        format!("forbidden cluster '{}'{origin}", h.value),
+                    ),
+                    forbid::HitKind::Namespace => (
+                        "forbid-namespace".to_string(),
+                        format!("forbidden namespace '{}'{origin}", h.value),
+                    ),
+                    forbid::HitKind::Database => (
+                        "forbid-database".to_string(),
+                        format!("forbidden database host '{}'", h.value),
+                    ),
+                };
+                return Some(Hit { rule_id, message });
+            }
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kubectl_checker_blocks_delete_namespace() {
+        let hit = KubectlChecker.check("kubectl delete ns production");
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("k8s-delete-namespace"));
+    }
+
+    #[test]
+    fn kubectl_checker_allows_safe_command() {
+        assert!(KubectlChecker.check("kubectl get pods").is_none());
+    }
+
+    #[test]
+    fn kubectl_checker_bins_contains_kubectl() {
+        assert!(KubectlChecker.bins().iter().any(|b| b == "kubectl"));
+    }
 
     fn direct(cmd: &str) -> Segment {
         Segment::Direct { command: cmd.to_string() }
