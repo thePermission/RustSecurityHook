@@ -798,10 +798,21 @@ fn install_codex_hook(value: &mut serde_json::Value, cmd: &str) -> Result<()> {
         .or_insert_with(|| json!([]));
     let arr = pre.as_array_mut().context("PreToolUse is not an array")?;
 
-    arr.retain(|e| e.get("command").and_then(|c| c.as_str()) != Some(cmd));
+    arr.retain(|e| {
+        !e.get("hooks")
+            .and_then(|h| h.as_array())
+            .map(|hs| {
+                hs.iter()
+                    .any(|h| h.get("command").and_then(|c| c.as_str()) == Some(cmd))
+            })
+            .unwrap_or(false)
+    });
     arr.push(json!({
         "matcher": "",
-        "command": cmd
+        "hooks": [{
+            "type": "command",
+            "command": cmd
+        }]
     }));
     Ok(())
 }
@@ -854,7 +865,7 @@ mod tests {
 
         let arr = value["hooks"]["PreToolUse"].as_array().unwrap();
         assert_eq!(arr.len(), 1);
-        assert_eq!(arr[0]["command"], "rsh");
+        assert_eq!(arr[0]["hooks"][0]["command"], "rsh");
     }
 
     #[test]
