@@ -387,7 +387,6 @@ struct BinGroup {
     rule_indices: Vec<usize>,
 }
 
-#[allow(dead_code)]
 static BIN_GROUPS: LazyLock<Vec<BinGroup>> = LazyLock::new(|| {
     let mut map: std::collections::HashMap<Option<&'static str>, Vec<usize>> =
         std::collections::HashMap::new();
@@ -410,15 +409,23 @@ pub fn rules() -> &'static [Rule] {
 }
 
 pub fn check_filtered(command: &str, disabled: &std::collections::HashSet<String>) -> Option<Hit> {
-    for rule in RULES.iter() {
-        if disabled.contains(rule.id) {
+    for group in BIN_GROUPS.iter() {
+        if !group.tokens.is_empty()
+            && !group.tokens.iter().any(|t| command.contains(t.as_str()))
+        {
             continue;
         }
-        if rule.regex.is_match(command) {
-            return Some(Hit {
-                id: rule.id,
-                reason: rule.reason,
-            });
+        for &idx in &group.rule_indices {
+            let rule = &RULES[idx];
+            if disabled.contains(rule.id) {
+                continue;
+            }
+            if rule.regex.is_match(command) {
+                return Some(Hit {
+                    id: rule.id,
+                    reason: rule.reason,
+                });
+            }
         }
     }
     None
