@@ -215,6 +215,55 @@ impl ToolChecker for DockerChecker {
     }
 }
 
+pub struct RshChecker;
+
+impl ToolChecker for RshChecker {
+    fn bins(&self) -> Vec<String> {
+        aliases::aliases_for(&aliases::ALIASES, "rsh")
+    }
+
+    fn check(&self, content: &str) -> Option<Hit> {
+        blacklist::check_for_bin(content, Some("rsh")).map(|h| Hit {
+            rule_id: h.id.to_string(),
+            message: format!("(rule: {}): {}", h.id, h.reason),
+        })
+    }
+}
+
+pub struct FallbackChecker;
+
+impl ToolChecker for FallbackChecker {
+    fn bins(&self) -> Vec<String> {
+        vec![]
+    }
+
+    fn check(&self, content: &str) -> Option<Hit> {
+        if let Some(h) = blacklist::check_for_bin(content, None) {
+            return Some(Hit {
+                rule_id: h.id.to_string(),
+                message: format!("(rule: {}): {}", h.id, h.reason),
+            });
+        }
+        let cfg = forbid::load();
+        if cfg.is_empty() {
+            return None;
+        }
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(h) = forbid::check_db(line, &cfg) {
+                return Some(Hit {
+                    rule_id: "forbid-database".to_string(),
+                    message: format!("forbidden database host '{}'", h.value),
+                });
+            }
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -373,5 +422,39 @@ mod tests {
     #[test]
     fn docker_checker_bins_contains_docker() {
         assert!(DockerChecker.bins().iter().any(|b| b == "docker"));
+    }
+
+    #[test]
+    fn fallback_checker_blocks_sql_delete() {
+        let hit = FallbackChecker.check(r#"psql -c "DELETE FROM users""#);
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("sql-delete"));
+    }
+
+    #[test]
+    fn fallback_checker_blocks_subprocess_kubectl_delete() {
+        let hit = FallbackChecker.check("subprocess.run(['kubectl', 'delete', 'ns', 'prod'])");
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn fallback_checker_bins_is_empty() {
+        assert!(FallbackChecker.bins().is_empty());
+    }
+
+    #[test]
+    fn rsh_checker_blocks_rule_disable() {
+        let hit = RshChecker.check("rsh rule disable k8s-delete-namespace");
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn rsh_checker_allows_rule_list() {
+        assert!(RshChecker.check("rsh rule list").is_none());
+    }
+
+    #[test]
+    fn rsh_checker_bins_contains_rsh() {
+        assert!(RshChecker.bins().iter().any(|b| b == "rsh"));
     }
 }
