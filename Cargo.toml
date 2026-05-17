@@ -1,6 +1,6 @@
 [package]
 name = "rsh"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2024"
 description = "Claude Code PreToolUse hook that blocks Bash commands matching a configurable blacklist."
 license = "Apache-2.0"
