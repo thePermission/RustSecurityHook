@@ -1,16 +1,16 @@
 # rsh Documentation
 
-`rsh` (Rust Security Hook) is a Claude Code PreToolUse hook that blocks dangerous shell commands, file writes, and script executions before Claude Code can carry them out.
+`rsh` (Rust Security Hook) is a Claude Code PreToolUse hook that blocks dangerous shell
+commands, file writes, and script executions before Claude Code can carry them out.
 
 ## How it works
 
-`rsh` registers itself in `~/.claude/settings.json` (global) or `.claude/settings.json` (project-local). Claude Code invokes it before every `Bash`, `Write`, and `Edit` tool call. If `rsh` exits with code 2 the tool call is refused and the reason is shown to the model.
+`rsh` registers itself in `~/.claude/settings.json` (global) or `.claude/settings.json`
+(project-local). Claude Code invokes it before every `Bash`, `Write`, and `Edit` tool call.
+If `rsh` exits with code 2 the tool call is refused and the reason is shown to the model.
 
-The check pipeline decides whether to block:
-
-1. **Segment classification** — the command is split on shell separators into `Direct` and `Script` segments.
-2. **Tool detection** — each segment is scanned for known binary names; only the relevant checkers run.
-3. **Parallel checker threads** — each checker applies its blacklist rules and (for kubectl/helm) the forbid check. The first hit cancels all others.
+The core idea: **each tool family is one category, and that category owns all checks for
+that tool** — regex rules, forbid checks, and alias expansion.
 
 ```mermaid
 flowchart TD
@@ -37,36 +37,50 @@ flowchart TD
     ALLOW --> CC2[Claude Code:\ntool call proceeds]
 ```
 
-## Behavior documentation
+## Claude Code tool handling
 
-Detailed descriptions of what is blocked and why:
+How each intercepted tool call is processed end-to-end:
 
-| File | Topic |
+| Page | What it explains |
 |---|---|
-| [kubernetes-rules.md](behavior/kubernetes-rules.md) | All `kubectl` and `helm` rules (destructive, pod access, privilege escalation, service disruption, subprocess-list bypass) |
-| [docker-rules.md](behavior/docker-rules.md) | Docker and Docker Compose rules (volume destruction, container/image cleanup) |
-| [sql-rules.md](behavior/sql-rules.md) | SQL keyword rules (DELETE, TRUNCATE, DROP, ALTER TABLE, CREATE) and forbidden database hosts |
-| [forbid-system.md](behavior/forbid-system.md) | How the forbid check works for clusters, namespaces, and databases — storage, CLI, flag extraction, kubeconfig fallback |
-| [alias-system.md](behavior/alias-system.md) | How aliases are registered and detected, and how they expand into rule regexes |
-| [content-scanning.md](behavior/content-scanning.md) | Write/Edit tool interception, and script file scanning when a Bash command invokes a script |
+| [bash-tool.md](behavior/bash-tool.md) | Segment splitting, script detection, chained commands, parallel checker pipeline |
+| [write-edit-tool.md](behavior/write-edit-tool.md) | Protected path check, content scan for Write and Edit calls |
+
+## Tool categories (checkers)
+
+Each tool family has its own checker with its own set of measures:
+
+| Page | Checker | Measures applied |
+|---|---|---|
+| [checker-kubectl.md](behavior/checker-kubectl.md) | `KubectlChecker` | Blacklist rules (destructive, pod access, privilege escalation, disruption) + forbid cluster/namespace |
+| [checker-helm.md](behavior/checker-helm.md) | `HelmChecker` | Blacklist rules (helm uninstall) + forbid cluster/namespace |
+| [checker-docker.md](behavior/checker-docker.md) | `DockerChecker` | Blacklist rules (volume destruction, container/image cleanup) |
+| [checker-fallback.md](behavior/checker-fallback.md) | `FallbackChecker` | SQL keyword rules + subprocess list bypass + database forbid |
+| [checker-rsh.md](behavior/checker-rsh.md) | `RshChecker` | Self-protection rules |
+
+## Supporting systems
+
+| Page | Topic |
+|---|---|
+| [forbid-system.md](behavior/forbid-system.md) | Forbid lists — storage, CLI, cluster/namespace/database target extraction |
+| [alias-system.md](behavior/alias-system.md) | Alias registration, auto-detection, and runtime expansion |
+| [fast-path-optimization.md](behavior/fast-path-optimization.md) | BinGroup fast-path — skipping all checks when no known tool is present |
 
 ## Architecture decision records
-
-Rationale for key design choices:
 
 | File | Decision |
 |---|---|
 | [adr/001-sql-blocking.md](adr/001-sql-blocking.md) | SQL keyword rules and forbidden database hosts |
 | [adr/002-docker-blacklist-rules.md](adr/002-docker-blacklist-rules.md) | Docker and Docker Compose blacklist rules |
 | [adr/003-write-edit-and-script-scanning.md](adr/003-write-edit-and-script-scanning.md) | Write/Edit tool interception and script file content scanning |
-| [adr/004-fail-open-exit-code-contract.md](adr/004-fail-open-exit-code-contract.md) | Fail-open design and exit code semantics (exit 2 vs exit 1) |
-| [adr/005-subprocess-list-bypass.md](adr/005-subprocess-list-bypass.md) | Blocking kubectl/helm in Python/Ruby/Node subprocess argument lists |
-| [adr/006-kubernetes-helm-initial-blacklist.md](adr/006-kubernetes-helm-initial-blacklist.md) | Initial Kubernetes and Helm blacklist rules — rationale and scope |
-| [adr/007-alias-system-design.md](adr/007-alias-system-design.md) | Alias system: storage format, auto-detection, and runtime caching |
-| [adr/008-rule-disable-enable.md](adr/008-rule-disable-enable.md) | Per-rule disable/enable toggle — storage, CLI, and testability design |
-| [adr/009-bingroup-fast-path.md](adr/009-bingroup-fast-path.md) | BinGroup fast-path — skip all regex checks when no known tool token is present |
-| [adr/010-criterion-benchmarks.md](adr/010-criterion-benchmarks.md) | Criterion benchmark suite for the run_check pipeline |
-| [adr/011-tool-checker-parallel-pipeline.md](adr/011-tool-checker-parallel-pipeline.md) | ToolChecker trait and parallel check pipeline — per-tool isolation, segment classification, fail-fast threads |
+| [adr/004-fail-open-exit-code-contract.md](adr/004-fail-open-exit-code-contract.md) | Fail-open design and exit code semantics |
+| [adr/005-subprocess-list-bypass.md](adr/005-subprocess-list-bypass.md) | Blocking kubectl/helm in subprocess argument lists |
+| [adr/006-kubernetes-helm-initial-blacklist.md](adr/006-kubernetes-helm-initial-blacklist.md) | Initial Kubernetes and Helm blacklist rules |
+| [adr/007-alias-system-design.md](adr/007-alias-system-design.md) | Alias system: storage format, auto-detection, runtime caching |
+| [adr/008-rule-disable-enable.md](adr/008-rule-disable-enable.md) | Per-rule disable/enable toggle |
+| [adr/009-bingroup-fast-path.md](adr/009-bingroup-fast-path.md) | BinGroup fast-path |
+| [adr/010-criterion-benchmarks.md](adr/010-criterion-benchmarks.md) | Criterion benchmark suite |
+| [adr/011-tool-checker-parallel-pipeline.md](adr/011-tool-checker-parallel-pipeline.md) | ToolChecker trait and parallel check pipeline |
 
 ## Quick reference
 
