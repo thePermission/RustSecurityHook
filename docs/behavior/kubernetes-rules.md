@@ -72,3 +72,15 @@ These two `bin = None` rules close a bypass where kubectl/helm calls appear as P
 | `helm-subprocess-list` | `['helm', ..., 'uninstall'/'delete']` in any subprocess call | `subprocess.run(['helm', 'uninstall', 'app'])` |
 
 Both single-quoted and double-quoted list forms are matched. Non-destructive calls (`['kubectl', 'get', 'pods']`) are not blocked.
+
+## Disabling individual rules
+
+Any rule can be temporarily disabled without removing it from the codebase:
+
+```sh
+rsh rule disable k8s-drain    # allow kubectl drain until re-enabled
+rsh rule enable k8s-drain     # restore the rule
+rsh rule list                 # show all rules with [DISABLED] marker
+```
+
+Disabled rules are stored in `~/.config/rsh/disabled-rules.json` and persist across sessions.

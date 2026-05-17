@@ -37,6 +37,7 @@ Rationale for key design choices:
 | [adr/005-subprocess-list-bypass.md](adr/005-subprocess-list-bypass.md) | Blocking kubectl/helm in Python/Ruby/Node subprocess argument lists |
 | [adr/006-kubernetes-helm-initial-blacklist.md](adr/006-kubernetes-helm-initial-blacklist.md) | Initial Kubernetes and Helm blacklist rules — rationale and scope |
 | [adr/007-alias-system-design.md](adr/007-alias-system-design.md) | Alias system: storage format, auto-detection, and runtime caching |
+| [adr/008-rule-disable-enable.md](adr/008-rule-disable-enable.md) | Per-rule disable/enable toggle — storage, CLI, and testability design |
 
 ## Quick reference
 
