@@ -265,8 +265,10 @@ fn run_detect(targets: &[String]) -> ExitCode {
 
 fn is_protected_path(path: &str) -> bool {
     let p = path.replace('\\', "/");
-    // Match .config/rsh followed by end-of-string or a path separator
-    p.contains(".config/rsh/") || p.ends_with(".config/rsh")
+    p.contains("/.config/rsh/")
+        || p.ends_with("/.config/rsh")
+        || p.starts_with(".config/rsh/")
+        || p == ".config/rsh"
 }
 
 fn run_hook() -> ExitCode {
@@ -992,5 +994,7 @@ mod protected_path_tests {
         assert!(!is_protected_path("/home/user/.config/other/file.json"));
         assert!(!is_protected_path("~/.config/rsh_backup/foo"));
         assert!(!is_protected_path(""));
+        assert!(!is_protected_path("my.config/rsh/file.json"));
+        assert!(!is_protected_path("/var/my.config/rsh/app.yaml"));
     }
 }
