@@ -435,6 +435,25 @@ pub fn check(command: &str) -> Option<Hit> {
     check_filtered(command, &crate::disabled::DISABLED)
 }
 
+/// Checks `content` against rules whose `bin` field equals `bin`.
+/// Pass `bin = Some("kubectl")` for kubectl-only rules, `bin = None` for bin=None rules.
+pub fn check_for_bin(content: &str, bin: Option<&str>) -> Option<Hit> {
+    let disabled = &crate::disabled::DISABLED;
+    for rule in RULES.iter() {
+        let matches = match (rule.bin, bin) {
+            (None, None) => true,
+            (Some(rb), Some(b)) => rb == b,
+            _ => false,
+        };
+        if !matches { continue; }
+        if disabled.contains(rule.id) { continue; }
+        if rule.regex.is_match(content) {
+            return Some(Hit { id: rule.id, reason: rule.reason });
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1039,5 +1058,27 @@ mod tests {
         // bin=None rules have empty tokens (never skipped).
         let binless = super::BIN_GROUPS.iter().find(|g| g.tokens.is_empty());
         assert!(binless.is_some(), "there must be a bin=None group with empty tokens");
+    }
+
+    #[test]
+    fn check_for_bin_kubectl_only() {
+        // kubectl rule must fire
+        assert!(check_for_bin("kubectl delete ns prod", Some("kubectl")).is_some());
+        // helm rule must NOT fire for kubectl-only check
+        assert!(check_for_bin("helm uninstall postgres", Some("kubectl")).is_none());
+    }
+
+    #[test]
+    fn check_for_bin_helm_only() {
+        assert!(check_for_bin("helm uninstall postgres", Some("helm")).is_some());
+        assert!(check_for_bin("kubectl delete ns prod", Some("helm")).is_none());
+    }
+
+    #[test]
+    fn check_for_bin_none_rules() {
+        // SQL rules have bin=None
+        assert!(check_for_bin(r#"psql -c "DELETE FROM users""#, None).is_some());
+        // kubectl rules must NOT fire in bin=None check
+        assert!(check_for_bin("kubectl delete ns prod", None).is_none());
     }
 }
