@@ -922,4 +922,38 @@ mod tests {
             check("kubectl delete namespace prod").map(|h| h.id),
         );
     }
+
+    // ---- rsh Self-Protection ----
+
+    #[test]
+    fn blocks_rsh_rule_disable() {
+        assert!(blocks("rsh rule disable k8s-delete-namespace"));
+        assert!(blocks("rsh rule disable rsh-protect-disable"));
+        assert!(blocks("rsh  rule  disable helm-uninstall"));
+        // list and enable must not be blocked
+        assert!(!blocks("rsh rule list"));
+        assert!(!blocks("rsh rule enable k8s-delete-namespace"));
+    }
+
+    #[test]
+    fn blocks_rsh_forbid_remove() {
+        assert!(blocks("rsh forbid remove cluster prod"));
+        assert!(blocks("rsh forbid remove namespace default"));
+        assert!(blocks("rsh forbid remove database db.example.com"));
+        // list and add must not be blocked
+        assert!(!blocks("rsh forbid list"));
+        assert!(!blocks("rsh forbid cluster prod"));
+        assert!(!blocks("rsh forbid namespace staging"));
+    }
+
+    #[test]
+    fn blocks_rsh_config_access() {
+        assert!(blocks("cat ~/.config/rsh/disabled-rules.json"));
+        assert!(blocks("echo '[]' > ~/.config/rsh/disabled-rules.json"));
+        assert!(blocks("rm ~/.config/rsh/aliases.json"));
+        assert!(blocks("ls ~/.config/rsh/"));
+        // unrelated config paths must not be blocked
+        assert!(!blocks("cat ~/.config/other/file.json"));
+        assert!(!blocks("ls ~/.config/"));
+    }
 }
