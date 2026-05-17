@@ -18,8 +18,6 @@ fn bench_harmless(c: &mut Criterion) {
     group.finish();
 }
 
-// NOTE: blocked commands cause run_check to write to stderr on every iteration.
-// Run as: cargo bench 2>/dev/null  to suppress the output.
 fn bench_blocked_k8s(c: &mut Criterion) {
     let commands = [
         "kubectl delete ns production",
