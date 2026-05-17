@@ -111,6 +111,7 @@ After a feature is fully implemented:
    - **ADR** (`docs/adr/NNN-<slug>.md`) — record the architectural decision: context, decision, alternatives considered, consequences.
    - **Behavior doc** (`docs/behavior/<topic>.md`) — describe the resulting behavior for users and contributors (living document, updated as rules evolve).
 2. Delete the spec and plan files — their content now lives in the ADR and behavior docs.
+   Run `find docs/superpowers -type f | sort` to confirm both are gone before closing the branch. Do not rely on subagent self-reports; verify directly.
 
 If no spec/plan exists for a feature, write the ADR and behavior doc from scratch before closing the branch.
 
