@@ -945,3 +945,28 @@ mod tests {
         assert_eq!(paths, vec!["./deploy.sh"]);
     }
 }
+
+#[cfg(test)]
+mod protected_path_tests {
+    use super::is_protected_path;
+
+    #[test]
+    fn protected_path_matches_rsh_config() {
+        assert!(is_protected_path("/home/user/.config/rsh/disabled-rules.json"));
+        assert!(is_protected_path("~/.config/rsh/aliases.json"));
+        assert!(is_protected_path(".config/rsh/forbidden.json"));
+    }
+
+    #[test]
+    fn protected_path_matches_windows_backslash() {
+        assert!(is_protected_path(r"C:\Users\user\.config\rsh\disabled-rules.json"));
+        assert!(is_protected_path(r".config\rsh\aliases.json"));
+    }
+
+    #[test]
+    fn protected_path_does_not_match_unrelated() {
+        assert!(!is_protected_path("/home/user/.config/other/file.json"));
+        assert!(!is_protected_path("~/.config/rsh_backup/foo"));
+        assert!(!is_protected_path(""));
+    }
+}
