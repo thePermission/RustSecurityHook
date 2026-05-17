@@ -18,10 +18,15 @@ pub fn run_check(command: &str) -> ExitCode {
 }
 
 pub fn run_check_content(content: &str) -> ExitCode {
-    if check_content_blocked(content, "file write") {
-        ExitCode::from(2)
-    } else {
-        ExitCode::SUCCESS
+    let segments = vec![crate::checker::Segment::Direct {
+        command: content.to_string(),
+    }];
+    match checker::run_parallel_checks(segments) {
+        Some(hit) => {
+            eprintln!("rsh blocked file content: {}", hit.message);
+            ExitCode::from(2)
+        }
+        None => ExitCode::SUCCESS,
     }
 }
 
