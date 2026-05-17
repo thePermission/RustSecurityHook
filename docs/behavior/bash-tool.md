@@ -63,11 +63,11 @@ For each segment, the `detect_checkers` function scans the content (command text
 
 | Checker | Included when |
 |---------|---------------|
-| [[checker-fallback\|FallbackChecker]] | Always included |
-| [[checker-kubectl\|KubectlChecker]] | `kubectl` or a configured alias appears in content |
-| [[checker-helm\|HelmChecker]] | `helm` or a configured alias appears in content |
-| [[checker-docker\|DockerChecker]] | `docker`, `docker-compose`, or a configured alias appears in content |
-| [[checker-rsh\|RshChecker]] | `rsh` or a configured alias appears in content |
+| [[checker-fallback|FallbackChecker]] | Always included |
+| [[checker-kubectl|KubectlChecker]] | `kubectl` or a configured alias appears in content |
+| [[checker-helm|HelmChecker]] | `helm` or a configured alias appears in content |
+| [[checker-docker|DockerChecker]] | `docker`, `docker-compose`, or a configured alias appears in content |
+| [[checker-rsh|RshChecker]] | `rsh` or a configured alias appears in content |
 
 For `Segment::Script`, the entire file contents are scanned — not just the command invocation line that triggered the script detection.
 
