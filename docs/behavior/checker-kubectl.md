@@ -1,3 +1,13 @@
+---
+title: KubectlChecker
+tags:
+  - rsh/checker
+  - rsh/kubernetes
+aliases:
+  - kubectl checker
+  - KubectlChecker
+---
+
 # KubectlChecker
 
 `KubectlChecker` handles every `kubectl` command and all registered aliases. It activates when a command segment contains `kubectl` or any known alias.

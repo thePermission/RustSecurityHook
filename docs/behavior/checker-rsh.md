@@ -1,3 +1,13 @@
+---
+title: RshChecker
+tags:
+  - rsh/checker
+  - rsh/security
+aliases:
+  - rsh checker
+  - RshChecker
+---
+
 # RshChecker
 
 `RshChecker` protects rsh's own configuration from modification during Claude Code sessions. It activates when command content contains `rsh` or any registered alias.

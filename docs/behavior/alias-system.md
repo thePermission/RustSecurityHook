@@ -1,3 +1,12 @@
+---
+title: Alias System
+tags:
+  - rsh/system
+aliases:
+  - aliases
+  - alias system
+---
+
 # Alias System
 
 Most blacklist rules are bound to a specific binary (e.g. `kubectl`, `docker`). If a user has a shell alias or symlink that points to the same binary under a different name (e.g. `k` → `kubectl`, `d` → `docker`), commands issued via the alias would bypass those rules. The alias system closes this gap.

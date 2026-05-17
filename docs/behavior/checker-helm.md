@@ -1,3 +1,13 @@
+---
+title: HelmChecker
+tags:
+  - rsh/checker
+  - rsh/kubernetes
+aliases:
+  - helm checker
+  - HelmChecker
+---
+
 # HelmChecker
 
 `HelmChecker` handles every `helm` command and all registered aliases. It activates when a command segment contains `helm` or any known alias.

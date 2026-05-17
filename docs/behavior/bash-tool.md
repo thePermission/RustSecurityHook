@@ -1,3 +1,13 @@
+---
+title: Bash Tool Processing
+tags:
+  - rsh/tool-handling
+  - rsh/pipeline
+aliases:
+  - bash tool
+  - bash processing
+---
+
 # Bash Tool Processing
 
 ## Overview

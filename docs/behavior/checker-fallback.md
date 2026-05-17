@@ -1,3 +1,14 @@
+---
+title: FallbackChecker
+tags:
+  - rsh/checker
+  - rsh/sql
+  - rsh/subprocess
+aliases:
+  - fallback checker
+  - FallbackChecker
+---
+
 # FallbackChecker behavior
 
 `FallbackChecker` runs on **every** segment regardless of which tools appear in it. Its `bins()` method returns an empty list — `detect_checkers` always includes it.

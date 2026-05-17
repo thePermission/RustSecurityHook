@@ -1,3 +1,13 @@
+---
+title: Write and Edit Tool Processing
+tags:
+  - rsh/tool-handling
+  - rsh/pipeline
+aliases:
+  - write tool
+  - edit tool
+---
+
 # Write and Edit Tool Processing
 
 ## Overview

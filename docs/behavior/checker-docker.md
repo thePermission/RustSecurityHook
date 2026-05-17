@@ -1,3 +1,13 @@
+---
+title: DockerChecker
+tags:
+  - rsh/checker
+  - rsh/docker
+aliases:
+  - docker checker
+  - DockerChecker
+---
+
 # Docker Checker
 
 `DockerChecker` handles `docker` and `docker-compose` commands (and registered aliases). Activates when content contains `docker`, `docker-compose`, or a known alias. One type of check: **regex blacklist only** — no forbid check for Docker.

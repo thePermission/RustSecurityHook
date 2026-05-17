@@ -1,3 +1,13 @@
+---
+title: Fast-Path Optimization
+tags:
+  - rsh/system
+  - rsh/performance
+aliases:
+  - fast path
+  - BinGroup
+---
+
 # Fast-Path Optimization
 
 `rsh` skips rule evaluation and disk I/O for commands that cannot match any protected binary.

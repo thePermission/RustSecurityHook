@@ -1,3 +1,14 @@
+---
+title: Forbid System
+tags:
+  - rsh/system
+  - rsh/kubernetes
+  - rsh/sql
+aliases:
+  - forbid
+  - forbidden lists
+---
+
 # Forbid System — Clusters, Namespaces, and Databases
 
 The forbid system lets you declare specific Kubernetes clusters, namespaces, and database
@@ -70,4 +81,3 @@ When a known SQL client binary is the first token of a command (`mysql`, `mariad
 If neither yields a hostname, the check is skipped (fail-open). Comparison is case-insensitive exact match.
 
 **Known limitation:** `env PGPASSWORD=x psql ...` and inline variable assignments (`PGPASSWORD=x psql ...`) bypass the database check because the first token is not the SQL client binary. This mirrors the same bypass in the kubectl/helm check.
-
