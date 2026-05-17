@@ -1,3 +1,13 @@
+---
+title: rsh Documentation
+tags:
+  - rsh/overview
+aliases:
+  - rsh
+  - rsh docs
+  - rust security hook
+---
+
 # rsh Documentation
 
 `rsh` (Rust Security Hook) is a Claude Code PreToolUse hook that blocks dangerous shell
@@ -16,7 +26,7 @@ that tool** — regex rules, forbid checks, and alias expansion.
 flowchart TD
     A([Claude Code:\nBash / Write / Edit tool call]) --> B[rsh PreToolUse hook\nstdin: JSON with tool_name + tool_input]
     B --> C{tool_name?}
-
+ob
     C -->|other tool| ALLOW([exit 0 — allow])
     C -->|Write / Edit| W1{Protected\nrsh config path?}
     C -->|Bash| D[split_segments:\nshell separators]
@@ -43,8 +53,8 @@ How each intercepted tool call is processed end-to-end:
 
 | Page | What it explains |
 |---|---|
-| [bash-tool.md](behavior/bash-tool.md) | Segment splitting, script detection, chained commands, parallel checker pipeline |
-| [write-edit-tool.md](behavior/write-edit-tool.md) | Protected path check, content scan for Write and Edit calls |
+| [[bash-tool\|bash-tool.md]] | Segment splitting, script detection, chained commands, parallel checker pipeline |
+| [[write-edit-tool\|write-edit-tool.md]] | Protected path check, content scan for Write and Edit calls |
 
 ## Tool categories (checkers)
 
@@ -52,35 +62,35 @@ Each tool family has its own checker with its own set of measures:
 
 | Page | Checker | Measures applied |
 |---|---|---|
-| [checker-kubectl.md](behavior/checker-kubectl.md) | `KubectlChecker` | Blacklist rules (destructive, pod access, privilege escalation, disruption) + forbid cluster/namespace |
-| [checker-helm.md](behavior/checker-helm.md) | `HelmChecker` | Blacklist rules (helm uninstall) + forbid cluster/namespace |
-| [checker-docker.md](behavior/checker-docker.md) | `DockerChecker` | Blacklist rules (volume destruction, container/image cleanup) |
-| [checker-fallback.md](behavior/checker-fallback.md) | `FallbackChecker` | SQL keyword rules + subprocess list bypass + database forbid |
-| [checker-rsh.md](behavior/checker-rsh.md) | `RshChecker` | Self-protection rules |
+| [[checker-kubectl\|checker-kubectl.md]] | `KubectlChecker` | Blacklist rules (destructive, pod access, privilege escalation, disruption) + forbid cluster/namespace |
+| [[checker-helm\|checker-helm.md]] | `HelmChecker` | Blacklist rules (helm uninstall) + forbid cluster/namespace |
+| [[checker-docker\|checker-docker.md]] | `DockerChecker` | Blacklist rules (volume destruction, container/image cleanup) |
+| [[checker-fallback\|checker-fallback.md]] | `FallbackChecker` | SQL keyword rules + subprocess list bypass + database forbid |
+| [[checker-rsh\|checker-rsh.md]] | `RshChecker` | Self-protection rules |
 
 ## Supporting systems
 
 | Page | Topic |
 |---|---|
-| [forbid-system.md](behavior/forbid-system.md) | Forbid lists — storage, CLI, cluster/namespace/database target extraction |
-| [alias-system.md](behavior/alias-system.md) | Alias registration, auto-detection, and runtime expansion |
-| [fast-path-optimization.md](behavior/fast-path-optimization.md) | BinGroup fast-path — skipping all checks when no known tool is present |
+| [[forbid-system\|forbid-system.md]] | Forbid lists — storage, CLI, cluster/namespace/database target extraction |
+| [[alias-system\|alias-system.md]] | Alias registration, auto-detection, and runtime expansion |
+| [[fast-path-optimization\|fast-path-optimization.md]] | BinGroup fast-path — skipping all checks when no known tool is present |
 
 ## Architecture decision records
 
 | File | Decision |
 |---|---|
-| [adr/001-sql-blocking.md](adr/001-sql-blocking.md) | SQL keyword rules and forbidden database hosts |
-| [adr/002-docker-blacklist-rules.md](adr/002-docker-blacklist-rules.md) | Docker and Docker Compose blacklist rules |
-| [adr/003-write-edit-and-script-scanning.md](adr/003-write-edit-and-script-scanning.md) | Write/Edit tool interception and script file content scanning |
-| [adr/004-fail-open-exit-code-contract.md](adr/004-fail-open-exit-code-contract.md) | Fail-open design and exit code semantics |
-| [adr/005-subprocess-list-bypass.md](adr/005-subprocess-list-bypass.md) | Blocking kubectl/helm in subprocess argument lists |
-| [adr/006-kubernetes-helm-initial-blacklist.md](adr/006-kubernetes-helm-initial-blacklist.md) | Initial Kubernetes and Helm blacklist rules |
-| [adr/007-alias-system-design.md](adr/007-alias-system-design.md) | Alias system: storage format, auto-detection, runtime caching |
-| [adr/008-rule-disable-enable.md](adr/008-rule-disable-enable.md) | Per-rule disable/enable toggle |
-| [adr/009-bingroup-fast-path.md](adr/009-bingroup-fast-path.md) | BinGroup fast-path |
-| [adr/010-criterion-benchmarks.md](adr/010-criterion-benchmarks.md) | Criterion benchmark suite |
-| [adr/011-tool-checker-parallel-pipeline.md](adr/011-tool-checker-parallel-pipeline.md) | ToolChecker trait and parallel check pipeline |
+| [[001-sql-blocking\|adr/001-sql-blocking.md]] | SQL keyword rules and forbidden database hosts |
+| [[002-docker-blacklist-rules\|adr/002-docker-blacklist-rules.md]] | Docker and Docker Compose blacklist rules |
+| [[003-write-edit-and-script-scanning\|adr/003-write-edit-and-script-scanning.md]] | Write/Edit tool interception and script file content scanning |
+| [[004-fail-open-exit-code-contract\|adr/004-fail-open-exit-code-contract.md]] | Fail-open design and exit code semantics |
+| [[005-subprocess-list-bypass\|adr/005-subprocess-list-bypass.md]] | Blocking kubectl/helm in subprocess argument lists |
+| [[006-kubernetes-helm-initial-blacklist\|adr/006-kubernetes-helm-initial-blacklist.md]] | Initial Kubernetes and Helm blacklist rules |
+| [[007-alias-system-design\|adr/007-alias-system-design.md]] | Alias system: storage format, auto-detection, runtime caching |
+| [[008-rule-disable-enable\|adr/008-rule-disable-enable.md]] | Per-rule disable/enable toggle |
+| [[009-bingroup-fast-path\|adr/009-bingroup-fast-path.md]] | BinGroup fast-path |
+| [[010-criterion-benchmarks\|adr/010-criterion-benchmarks.md]] | Criterion benchmark suite |
+| [[011-tool-checker-parallel-pipeline\|adr/011-tool-checker-parallel-pipeline.md]] | ToolChecker trait and parallel check pipeline |
 
 ## Quick reference
 
