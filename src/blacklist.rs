@@ -348,7 +348,7 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "rsh-protect-config-access",
         "rsh Self-Protection",
         None,
-        r"\.config[/\\]rsh\b",
+        r"\.config[/\\]rsh(?:[/\\]|\s|$)",
         "Prevents any Bash access to the rsh config directory — protects disabled-rules, aliases, and forbidden lists",
     ),
 ];
@@ -977,8 +977,11 @@ mod tests {
         assert!(blocks("echo '[]' > ~/.config/rsh/disabled-rules.json"));
         assert!(blocks("rm ~/.config/rsh/aliases.json"));
         assert!(blocks("ls ~/.config/rsh/"));
+        assert!(blocks("ls ~/.config/rsh"));
         // unrelated config paths must not be blocked
         assert!(!blocks("cat ~/.config/other/file.json"));
         assert!(!blocks("ls ~/.config/"));
+        assert!(!blocks("cat ~/.config/rsh-backup/file.json"));
+        assert!(!blocks("ls ~/.config/rsh.old"));
     }
 }
