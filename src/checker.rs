@@ -191,6 +191,30 @@ impl ToolChecker for HelmChecker {
     }
 }
 
+pub struct DockerChecker;
+
+impl ToolChecker for DockerChecker {
+    fn bins(&self) -> Vec<String> {
+        let mut b = aliases::aliases_for(&aliases::ALIASES, "docker");
+        b.extend(aliases::aliases_for(&aliases::ALIASES, "docker-compose"));
+        b.sort();
+        b.dedup();
+        b
+    }
+
+    fn check(&self, content: &str) -> Option<Hit> {
+        if let Some(h) = blacklist::check_for_bin(content, Some("docker"))
+            .or_else(|| blacklist::check_for_bin(content, Some("docker-compose")))
+        {
+            return Some(Hit {
+                rule_id: h.id.to_string(),
+                message: format!("(rule: {}): {}", h.id, h.reason),
+            });
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,5 +349,29 @@ mod tests {
     #[test]
     fn helm_checker_bins_contains_helm() {
         assert!(HelmChecker.bins().iter().any(|b| b == "helm"));
+    }
+
+    #[test]
+    fn docker_checker_blocks_volume_rm() {
+        let hit = DockerChecker.check("docker volume rm mydata");
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("docker-volume-rm"));
+    }
+
+    #[test]
+    fn docker_checker_blocks_compose_legacy_down() {
+        let hit = DockerChecker.check("docker-compose down");
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn docker_checker_allows_safe_command() {
+        assert!(DockerChecker.check("docker ps").is_none());
+        assert!(DockerChecker.check("docker build -t myimage .").is_none());
+    }
+
+    #[test]
+    fn docker_checker_bins_contains_docker() {
+        assert!(DockerChecker.bins().iter().any(|b| b == "docker"));
     }
 }
