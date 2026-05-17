@@ -7,37 +7,14 @@ pub mod forbid;
 use std::process::ExitCode;
 
 pub fn run_check(command: &str) -> ExitCode {
-    if let Some(hit) = blacklist::check(command) {
-        eprintln!("rsh blocked command (rule: {}): {}", hit.id, hit.reason);
-        return ExitCode::from(2);
-    }
-    if let Some(hit) = forbid::check(command) {
-        match hit.kind {
-            forbid::HitKind::Cluster => {
-                let origin = if hit.from_current_context { " (current kubeconfig)" } else { "" };
-                eprintln!("rsh blocked command: forbidden cluster '{}'{origin}", hit.value);
-            }
-            forbid::HitKind::Namespace => {
-                let origin = if hit.from_current_context { " (current kubeconfig)" } else { "" };
-                eprintln!("rsh blocked command: forbidden namespace '{}'{origin}", hit.value);
-            }
-            forbid::HitKind::Database => {
-                eprintln!("rsh blocked command: forbidden database host '{}'", hit.value);
-            }
+    let segments = checker::split_segments(command);
+    match checker::run_parallel_checks(segments) {
+        Some(hit) => {
+            eprintln!("rsh blocked: {}", hit.message);
+            ExitCode::from(2)
         }
-        return ExitCode::from(2);
+        None => ExitCode::SUCCESS,
     }
-    for path in script_paths_in(command) {
-        match std::fs::read_to_string(&path) {
-            Ok(content) => {
-                if check_content_blocked(&content, &format!("script execution ({path})")) {
-                    return ExitCode::from(2);
-                }
-            }
-            Err(_) => {}
-        }
-    }
-    ExitCode::SUCCESS
 }
 
 pub fn run_check_content(content: &str) -> ExitCode {
