@@ -1,5 +1,6 @@
 mod aliases;
 mod blacklist;
+mod disabled;
 mod forbid;
 
 use anyhow::{Context, Result};
