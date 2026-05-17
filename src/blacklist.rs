@@ -387,6 +387,7 @@ struct BinGroup {
     rule_indices: Vec<usize>,
 }
 
+#[allow(dead_code)]
 static BIN_GROUPS: LazyLock<Vec<BinGroup>> = LazyLock::new(|| {
     let mut map: std::collections::HashMap<Option<&'static str>, Vec<usize>> =
         std::collections::HashMap::new();
@@ -1009,11 +1010,27 @@ mod tests {
 
     #[test]
     fn bin_groups_cover_all_rules() {
+        // Every rule index appears in exactly one group.
         let grouped: usize = super::BIN_GROUPS.iter().map(|g| g.rule_indices.len()).sum();
         assert_eq!(
             grouped,
             super::RULES.len(),
             "every rule must appear in exactly one BinGroup"
         );
+
+        // The kubectl group exists and its tokens contain "kubectl".
+        let kubectl_group = super::BIN_GROUPS
+            .iter()
+            .find(|g| g.tokens.iter().any(|t| t == "kubectl"))
+            .expect("kubectl group must exist");
+        assert!(
+            kubectl_group.rule_indices.len() >= 10,
+            "kubectl group must have at least 10 rules, got {}",
+            kubectl_group.rule_indices.len()
+        );
+
+        // bin=None rules have empty tokens (never skipped).
+        let binless = super::BIN_GROUPS.iter().find(|g| g.tokens.is_empty());
+        assert!(binless.is_some(), "there must be a bin=None group with empty tokens");
     }
 }
