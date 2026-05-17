@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Hit {
     pub rule_id: String,
     /// Full human-readable block message (everything after "rsh blocked: ")
