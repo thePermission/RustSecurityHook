@@ -1,3 +1,9 @@
+use crate::{aliases, blacklist, forbid};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hit {
     pub rule_id: String,
@@ -85,12 +91,6 @@ fn strip_quotes(s: &str) -> String {
     }
 }
 
-use crate::{aliases, blacklist, forbid};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
-
 pub struct KubectlChecker;
 
 impl ToolChecker for KubectlChecker {
@@ -128,10 +128,7 @@ impl ToolChecker for KubectlChecker {
                         "forbid-namespace".to_string(),
                         format!("forbidden namespace '{}'{origin}", h.value),
                     ),
-                    forbid::HitKind::Database => (
-                        "forbid-database".to_string(),
-                        format!("forbidden database host '{}'", h.value),
-                    ),
+                    _ => return None,
                 };
                 return Some(Hit { rule_id, message });
             }
@@ -177,10 +174,7 @@ impl ToolChecker for HelmChecker {
                         "forbid-namespace".to_string(),
                         format!("forbidden namespace '{}'{origin}", h.value),
                     ),
-                    forbid::HitKind::Database => (
-                        "forbid-database".to_string(),
-                        format!("forbidden database host '{}'", h.value),
-                    ),
+                    _ => return None,
                 };
                 return Some(Hit { rule_id, message });
             }
