@@ -1,6 +1,11 @@
 # Forbid System — Clusters, Namespaces, and Databases
 
-The forbid system is a second blocking pipeline that runs **after** the regex blacklist. Instead of matching on the syntax of a command, it inspects the *target* — the Kubernetes cluster/namespace a `kubectl` or `helm` command would hit, or the database host a SQL client would connect to — and blocks it if that target appears on the user's forbid list.
+The forbid system lets you declare specific Kubernetes clusters, namespaces, and database
+hosts that rsh should always block, regardless of the individual command's safety.
+
+It is integrated into three checkers: [[checker-kubectl|KubectlChecker]] and
+[[checker-helm|HelmChecker]] enforce cluster and namespace forbid lists;
+[[checker-fallback|FallbackChecker]] enforces the database forbid list.
 
 ## Storage
 
@@ -66,6 +71,3 @@ If neither yields a hostname, the check is skipped (fail-open). Comparison is ca
 
 **Known limitation:** `env PGPASSWORD=x psql ...` and inline variable assignments (`PGPASSWORD=x psql ...`) bypass the database check because the first token is not the SQL client binary. This mirrors the same bypass in the kubectl/helm check.
 
-## Interaction with the Blacklist
-
-The forbid check runs **after** the blacklist. A command blocked by the blacklist never reaches the forbid check. A command allowed by the blacklist may still be blocked by the forbid check (e.g. `kubectl get pods` in a forbidden cluster is blocked even though `kubectl get pods` is not on the blacklist).
