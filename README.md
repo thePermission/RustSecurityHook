@@ -59,7 +59,7 @@ If you prefer to install manually, the [releases page](https://github.com/thePer
 
 ```sh
 # Linux x86_64 example
-TAG=v0.7.0
+TAG=v0.7.1
 curl -fsSL -O https://github.com/thePermission/RustSecurityHook/releases/download/$TAG/rsh-x86_64-unknown-linux-musl.tar.xz
 curl -fsSL -O https://github.com/thePermission/RustSecurityHook/releases/download/$TAG/rsh-x86_64-unknown-linux-musl.tar.xz.sha256
 sha256sum -c rsh-x86_64-unknown-linux-musl.tar.xz.sha256

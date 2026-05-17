@@ -323,10 +323,11 @@ fn run_hook_from_str(input: &str) -> ExitCode {
         return ExitCode::SUCCESS;
     };
     match input.tool_name.as_str() {
-        "Bash" => {
+        "Bash" | "exec_command" => {
             let command = input
                 .tool_input
                 .get("command")
+                .or_else(|| input.tool_input.get("cmd"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             run_check(command)
@@ -851,5 +852,23 @@ mod tests {
             "tool_input":{"command":"*** Begin Patch\n*** End Patch\n"}
         }"#;
         assert_eq!(run_hook_from_str(input), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_hook_accepts_codex_exec_command_payload() {
+        let input = r#"{
+            "tool_name":"exec_command",
+            "tool_input":{"cmd":"echo ok"}
+        }"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_hook_blocks_codex_exec_command_payload() {
+        let input = r#"{
+            "tool_name":"exec_command",
+            "tool_input":{"cmd":"docker compose down -v"}
+        }"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::from(2));
     }
 }
