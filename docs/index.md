@@ -11,6 +11,39 @@ Two independent pipelines decide whether to block:
 1. **Blacklist** — regex rules matched against the command string or file content.
 2. **Forbid** — target-based rules that check which Kubernetes cluster/namespace or database host a command would reach.
 
+```mermaid
+flowchart TD
+    A([Claude Code:\nBash / Write / Edit tool call]) --> B[rsh PreToolUse hook\nstdin: JSON with tool_name + tool_input]
+    B --> C{tool_name?}
+
+    C -->|other tool| ALLOW([exit 0 — allow])
+    C -->|Bash| D{BinGroup fast-path:\nknown tool token present?}
+    C -->|Write / Edit| W1{Protected\nrsh config path?}
+
+    D -->|no token| ALLOW
+    D -->|token present| E{Blacklist check\nregex rules}
+
+    E -->|match| BLOCK
+    E -->|no match| F{Forbid check\ncluster / namespace / db}
+
+    F -->|match| BLOCK
+    F -->|no match| G{Script paths\nin command?}
+
+    G -->|none| ALLOW
+    G -->|scripts found| H[Read script file\ncontent]
+    H --> I{Content scan\nblacklist + forbid per line}
+    I -->|match| BLOCK
+    I -->|no match| ALLOW
+
+    W1 -->|yes| BLOCK
+    W1 -->|no| W2{Content scan\nblacklist + forbid per line}
+    W2 -->|match| BLOCK
+    W2 -->|no match| ALLOW
+
+    BLOCK([exit 2 — block\nreason on stderr]) --> CC[Claude Code:\nshows reason to model\ntool call refused]
+    ALLOW --> CC2[Claude Code:\ntool call proceeds]
+```
+
 ## Behavior documentation
 
 Detailed descriptions of what is blocked and why:
