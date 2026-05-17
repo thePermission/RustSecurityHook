@@ -70,6 +70,7 @@ fn main() -> ExitCode {
             };
             run_detect(&targets)
         }
+        Some("rule") => run_rule(&args[2..]),
         Some("forbid") => run_forbid(&args[2..]),
         Some("--help") | Some("-h") | Some("help") => {
             print_help();
@@ -97,6 +98,9 @@ fn print_help() {
                                      (e.g. `rsh alias kubectl k` if `k` is a symlink/wrapper for kubectl)\n\
            rsh detect-aliases [cmd]  Auto-detect aliases by scanning $PATH for symlinks/hardlinks.\n\
                                      With no argument, scans all commands referenced by rules.\n\
+           rsh rule disable <id>     Disable a blacklist rule by ID.\n\
+           rsh rule enable <id>      Re-enable a disabled blacklist rule.\n\
+           rsh rule list             Show all rules with [DISABLED] marker where applicable.\n\
            rsh forbid cluster <name>              Add a forbidden cluster (context).\n\
            rsh forbid namespace <name>            Add a forbidden namespace.\n\
            rsh forbid database <hostname>         Add a forbidden database hostname.\n\
@@ -436,6 +440,82 @@ fn strip_quotes(s: &str) -> String {
         s[1..s.len() - 1].to_string()
     } else {
         s.to_string()
+    }
+}
+
+fn is_valid_rule_id(id: &str) -> bool {
+    blacklist::rules().iter().any(|r| r.id == id)
+}
+
+fn run_rule(args: &[String]) -> ExitCode {
+    let usage = "usage:\n  \
+        rsh rule disable <id>\n  \
+        rsh rule enable <id>\n  \
+        rsh rule list";
+
+    match args.first().map(String::as_str) {
+        Some("disable") => match args.get(1) {
+            Some(id) => {
+                if !is_valid_rule_id(id) {
+                    eprintln!("error: unknown rule id '{id}'");
+                    eprintln!("hint: run `rsh rule list` to see all valid rule IDs");
+                    return ExitCode::FAILURE;
+                }
+                match disabled::add(id) {
+                    Ok(true) => {
+                        eprintln!("rule: disabled '{id}'");
+                        ExitCode::SUCCESS
+                    }
+                    Ok(false) => {
+                        eprintln!("rule: '{id}' was already disabled");
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("rule failed: {e:#}");
+                        ExitCode::FAILURE
+                    }
+                }
+            }
+            None => {
+                eprintln!("usage: rsh rule disable <id>");
+                ExitCode::FAILURE
+            }
+        },
+        Some("enable") => match args.get(1) {
+            Some(id) => {
+                if !is_valid_rule_id(id) {
+                    eprintln!("error: unknown rule id '{id}'");
+                    eprintln!("hint: run `rsh rule list` to see all valid rule IDs");
+                    return ExitCode::FAILURE;
+                }
+                match disabled::remove(id) {
+                    Ok(true) => {
+                        eprintln!("rule: enabled '{id}'");
+                        ExitCode::SUCCESS
+                    }
+                    Ok(false) => {
+                        eprintln!("rule: '{id}' was already enabled");
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("rule failed: {e:#}");
+                        ExitCode::FAILURE
+                    }
+                }
+            }
+            None => {
+                eprintln!("usage: rsh rule enable <id>");
+                ExitCode::FAILURE
+            }
+        },
+        Some("list") => {
+            list_rules();
+            ExitCode::SUCCESS
+        }
+        _ => {
+            eprintln!("{usage}");
+            ExitCode::FAILURE
+        }
     }
 }
 
