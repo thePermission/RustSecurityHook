@@ -264,6 +264,23 @@ impl ToolChecker for FallbackChecker {
     }
 }
 
+pub fn detect_checkers(content: &str) -> Vec<Box<dyn ToolChecker>> {
+    let candidates: Vec<Box<dyn ToolChecker>> = vec![
+        Box::new(FallbackChecker),
+        Box::new(KubectlChecker),
+        Box::new(HelmChecker),
+        Box::new(DockerChecker),
+        Box::new(RshChecker),
+    ];
+    candidates
+        .into_iter()
+        .filter(|c| {
+            let bins = c.bins();
+            bins.is_empty() || bins.iter().any(|b| content.contains(b.as_str()))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,5 +473,36 @@ mod tests {
     #[test]
     fn rsh_checker_bins_contains_rsh() {
         assert!(RshChecker.bins().iter().any(|b| b == "rsh"));
+    }
+
+    #[test]
+    fn detect_checkers_returns_fallback_always() {
+        let checkers = detect_checkers("ls -la");
+        assert!(checkers.iter().any(|c| c.bins().is_empty())); // FallbackChecker present
+    }
+
+    #[test]
+    fn detect_checkers_returns_kubectl_when_present() {
+        let checkers = detect_checkers("kubectl delete ns prod");
+        assert!(checkers.iter().any(|c| c.bins().iter().any(|b| b == "kubectl")));
+    }
+
+    #[test]
+    fn detect_checkers_does_not_return_kubectl_for_helm_only() {
+        let checkers = detect_checkers("helm list");
+        assert!(!checkers.iter().any(|c| c.bins().iter().any(|b| b == "kubectl")));
+    }
+
+    #[test]
+    fn detect_checkers_returns_both_for_mixed_content() {
+        let checkers = detect_checkers("kubectl get pods\nhelm list");
+        assert!(checkers.iter().any(|c| c.bins().iter().any(|b| b == "kubectl")));
+        assert!(checkers.iter().any(|c| c.bins().iter().any(|b| b == "helm")));
+    }
+
+    #[test]
+    fn detect_checkers_returns_docker_when_present() {
+        let checkers = detect_checkers("docker volume rm mydata");
+        assert!(checkers.iter().any(|c| c.bins().iter().any(|b| b == "docker")));
     }
 }
