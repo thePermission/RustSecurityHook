@@ -86,11 +86,9 @@ fn strip_quotes(s: &str) -> String {
 }
 
 use crate::{aliases, blacklist, forbid};
-#[allow(unused_imports)]
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
-    mpsc::Sender,
 };
 
 pub struct KubectlChecker;
@@ -279,6 +277,41 @@ pub fn detect_checkers(content: &str) -> Vec<Box<dyn ToolChecker>> {
             bins.is_empty() || bins.iter().any(|b| content.contains(b.as_str()))
         })
         .collect()
+}
+
+pub fn run_parallel_checks(segments: Vec<Segment>) -> Option<Hit> {
+    use std::sync::mpsc;
+    use std::thread;
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = mpsc::channel::<Hit>();
+
+    for segment in segments {
+        let content: String = match segment {
+            Segment::Direct { command } => command,
+            Segment::Script { path } => match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            },
+        };
+        let checkers = detect_checkers(&content);
+        for checker in checkers {
+            let stop = stop.clone();
+            let tx = tx.clone();
+            let content = content.clone();
+            thread::spawn(move || {
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                if let Some(hit) = checker.check(&content) {
+                    stop.store(true, Ordering::Relaxed);
+                    let _ = tx.send(hit);
+                }
+            });
+        }
+    }
+    drop(tx);
+    rx.recv().ok()
 }
 
 #[cfg(test)]
@@ -504,5 +537,44 @@ mod tests {
     fn detect_checkers_returns_docker_when_present() {
         let checkers = detect_checkers("docker volume rm mydata");
         assert!(checkers.iter().any(|c| c.bins().iter().any(|b| b == "docker")));
+    }
+
+    #[test]
+    fn run_parallel_checks_returns_hit_for_blocked_command() {
+        let segs = vec![Segment::Direct {
+            command: "kubectl delete ns prod".to_string(),
+        }];
+        let hit = run_parallel_checks(segs);
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("k8s-delete-namespace"));
+    }
+
+    #[test]
+    fn run_parallel_checks_returns_none_for_safe_command() {
+        let segs = vec![Segment::Direct {
+            command: "kubectl get pods".to_string(),
+        }];
+        assert!(run_parallel_checks(segs).is_none());
+    }
+
+    #[test]
+    fn run_parallel_checks_detects_hit_in_mixed_segments() {
+        let segs = vec![
+            Segment::Direct {
+                command: "kubectl get pods".to_string(),
+            },
+            Segment::Direct {
+                command: "helm uninstall postgres".to_string(),
+            },
+        ];
+        assert!(run_parallel_checks(segs).is_some());
+    }
+
+    #[test]
+    fn run_parallel_checks_skips_unreadable_script() {
+        let segs = vec![Segment::Script {
+            path: "/nonexistent/script.sh".to_string(),
+        }];
+        assert!(run_parallel_checks(segs).is_none());
     }
 }
