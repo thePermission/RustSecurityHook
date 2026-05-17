@@ -91,6 +91,7 @@ Each tool family has its own checker with its own set of measures:
 | [[009-bingroup-fast-path\|adr/009-bingroup-fast-path.md]] | BinGroup fast-path |
 | [[010-criterion-benchmarks\|adr/010-criterion-benchmarks.md]] | Criterion benchmark suite |
 | [[011-tool-checker-parallel-pipeline\|adr/011-tool-checker-parallel-pipeline.md]] | ToolChecker trait and parallel check pipeline |
+| [[012-per-checker-documentation-structure\|adr/012-per-checker-documentation-structure.md]] | Per-checker documentation structure — replacing thematic docs |
 
 ## Quick reference
 
