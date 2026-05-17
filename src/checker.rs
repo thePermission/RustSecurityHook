@@ -142,6 +142,55 @@ impl ToolChecker for KubectlChecker {
     }
 }
 
+pub struct HelmChecker;
+
+impl ToolChecker for HelmChecker {
+    fn bins(&self) -> Vec<String> {
+        aliases::aliases_for(&aliases::ALIASES, "helm")
+    }
+
+    fn check(&self, content: &str) -> Option<Hit> {
+        if let Some(h) = blacklist::check_for_bin(content, Some("helm")) {
+            return Some(Hit {
+                rule_id: h.id.to_string(),
+                message: format!("(rule: {}): {}", h.id, h.reason),
+            });
+        }
+        let cfg = forbid::load();
+        if cfg.is_empty() {
+            return None;
+        }
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(h) =
+                forbid::check_with(line, &aliases::ALIASES, &cfg, &forbid::KubectlEnv)
+            {
+                let origin =
+                    if h.from_current_context { " (current kubeconfig)" } else { "" };
+                let (rule_id, message) = match &h.kind {
+                    forbid::HitKind::Cluster => (
+                        "forbid-cluster".to_string(),
+                        format!("forbidden cluster '{}'{origin}", h.value),
+                    ),
+                    forbid::HitKind::Namespace => (
+                        "forbid-namespace".to_string(),
+                        format!("forbidden namespace '{}'{origin}", h.value),
+                    ),
+                    forbid::HitKind::Database => (
+                        "forbid-database".to_string(),
+                        format!("forbidden database host '{}'", h.value),
+                    ),
+                };
+                return Some(Hit { rule_id, message });
+            }
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,5 +307,23 @@ mod tests {
                 script("/tmp/process.sh"),
             ]
         );
+    }
+
+    #[test]
+    fn helm_checker_blocks_uninstall() {
+        let hit = HelmChecker.check("helm uninstall postgres");
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("helm-uninstall"));
+    }
+
+    #[test]
+    fn helm_checker_allows_safe_command() {
+        assert!(HelmChecker.check("helm list").is_none());
+        assert!(HelmChecker.check("helm upgrade postgres bitnami/postgresql").is_none());
+    }
+
+    #[test]
+    fn helm_checker_bins_contains_helm() {
+        assert!(HelmChecker.bins().iter().any(|b| b == "helm"));
     }
 }
