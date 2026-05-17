@@ -103,6 +103,22 @@ Storage: `~/.config/rsh/forbidden.json` (or `%APPDATA%\rsh\forbidden.json` on Wi
 
 **Exit-code contract:** only `0` (allow) and `2` (block, message on stderr). Avoid other exit codes — Claude Code interprets `1` as "hook error", and behavior varies by version, which is not the same as "explicit block".
 
+## Benchmark workflow
+
+The project uses **Criterion** (`benches/hook.rs`). Before starting any performance-relevant feature, capture a baseline:
+
+```bash
+cargo bench 2>&1 | tee docs/benchmarks/<feature-slug>-before.txt
+```
+
+After the feature is complete, run the same command and save the result:
+
+```bash
+cargo bench 2>&1 | tee docs/benchmarks/<feature-slug>-after.txt
+```
+
+Criterion prints change percentages automatically when the same benchmark IDs exist in both runs — include the relevant lines in the commit message or ADR. Benchmark files in `docs/benchmarks/` are ephemeral — delete them after the comparison is recorded in the ADR.
+
 ## Documentation workflow
 
 After a feature is fully implemented:
