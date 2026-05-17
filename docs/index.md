@@ -17,8 +17,9 @@ shell commands, file writes, and script executions before those tools can carry 
 
 `rsh` registers itself in Claude `settings.json` or Codex `hooks.json`, either globally or
 project-locally depending on `rsh init`. Claude invokes it before `Bash`, `Write`, and `Edit`
-tool calls. Codex invokes it before `Bash` and `apply_patch` tool calls. If `rsh` exits with
-code 2 the tool call is refused and the reason is shown to the model.
+tool calls. Codex invokes it before `apply_patch` and any command-carrying tool call (for
+example `Bash`, `exec_command`, or namespaced variants such as `functions.exec_command`). If
+`rsh` exits with code 2 the tool call is refused and the reason is shown to the model.
 
 The core idea: **each tool family is one category, and that category owns all checks for
 that tool** — regex rules, forbid checks, and alias expansion.
@@ -30,7 +31,7 @@ flowchart TD
     C -->|other tool| ALLOW([exit 0 — allow])
     C -->|Write / Edit| W1{Protected\nrsh config path?}
     C -->|apply_patch| D
-    C -->|Bash| D[split_segments:\nshell separators]
+    C -->|Bash / exec_command / command-like tool| D[split_segments:\nshell separators]
 
     W1 -->|yes| BLOCK
     W1 -->|no| D

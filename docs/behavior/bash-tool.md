@@ -12,7 +12,7 @@ aliases:
 
 ## Overview
 
-When Claude Code or Codex invokes the `Bash` tool, the `rsh` hook receives a JSON event containing the command to be executed. This document describes how `rsh` processes that command through the checker pipeline and produces an allow or block decision.
+When Claude Code or Codex invokes a command-executing tool, the `rsh` hook receives a JSON event containing the command to be executed. This document describes how `rsh` processes that command through the checker pipeline and produces an allow or block decision.
 
 ## Step 0: Hook Input
 
@@ -27,7 +27,9 @@ Claude Code and Codex send the hook a JSON event with the following structure:
 }
 ```
 
-The hook extracts the string value of `tool_input.command` and passes it to the segment splitter.
+Codex command tools may also use `tool_name` values such as `exec_command` or `functions.exec_command`, and may place the shell text in either `tool_input.command` or `tool_input.cmd`.
+
+The hook extracts the command string and passes it to the segment splitter.
 
 ## Step 1: Segment Splitting
 
@@ -131,7 +133,7 @@ When any thread scanning segment 2 runs `KubectlChecker.check()` against the scr
 
 The hook respects this contract:
 
-- **Exit 0**: Command is allowed. The caller proceeds with the Bash tool.
+- **Exit 0**: Command is allowed. The caller proceeds with the tool call.
 - **Exit 2**: Command is blocked. The caller surfaces the stderr message to the model and refuses the tool call.
 
 Other exit codes are not used; they would be interpreted as errors rather than explicit blocks.

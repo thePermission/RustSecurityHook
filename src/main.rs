@@ -322,16 +322,12 @@ fn run_hook_from_str(input: &str) -> ExitCode {
     let Ok(input) = serde_json::from_str::<HookInput>(input) else {
         return ExitCode::SUCCESS;
     };
+    if is_command_tool(&input.tool_name, &input.tool_input) {
+        let command = extract_command(&input.tool_input);
+        return run_check(command);
+    }
+
     match input.tool_name.as_str() {
-        "Bash" | "exec_command" => {
-            let command = input
-                .tool_input
-                .get("command")
-                .or_else(|| input.tool_input.get("cmd"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            run_check(command)
-        }
         "Write" => {
             let file_path = input
                 .tool_input
@@ -376,6 +372,22 @@ fn run_hook_from_str(input: &str) -> ExitCode {
         }
         _ => ExitCode::SUCCESS,
     }
+}
+
+fn is_command_tool(tool_name: &str, tool_input: &serde_json::Value) -> bool {
+    matches!(tool_name, "Bash" | "exec_command")
+        || tool_name.ends_with(".exec_command")
+        || tool_name.ends_with("/exec_command")
+        || tool_name.ends_with("::exec_command")
+        || (tool_name != "apply_patch" && extract_command(tool_input) != "")
+}
+
+fn extract_command(tool_input: &serde_json::Value) -> &str {
+    tool_input
+        .get("command")
+        .or_else(|| tool_input.get("cmd"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
 }
 
 fn is_valid_rule_id(id: &str) -> bool {
@@ -870,5 +882,32 @@ mod tests {
             "tool_input":{"cmd":"docker compose down -v"}
         }"#;
         assert_eq!(run_hook_from_str(input), ExitCode::from(2));
+    }
+
+    #[test]
+    fn run_hook_blocks_namespaced_exec_command_payload() {
+        let input = r#"{
+            "tool_name":"functions.exec_command",
+            "tool_input":{"cmd":"kubectl delete ns prod"}
+        }"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::from(2));
+    }
+
+    #[test]
+    fn run_hook_blocks_unknown_command_tool_payload() {
+        let input = r#"{
+            "tool_name":"shell_runner",
+            "tool_input":{"command":"docker compose down -v"}
+        }"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::from(2));
+    }
+
+    #[test]
+    fn run_hook_allows_unknown_non_command_tool_payload() {
+        let input = r#"{
+            "tool_name":"list_files",
+            "tool_input":{"path":"src"}
+        }"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::SUCCESS);
     }
 }

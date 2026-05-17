@@ -21,7 +21,7 @@ Claude Code's PreToolUse hook protocol interprets the exit code of the hook bina
 
 - Empty or unreadable stdin (`read_to_string` error)
 - Malformed or non-JSON stdin
-- `tool_name` not `Bash`, `Write`, or `Edit`
+- `tool_name` not recognized as a command tool and not `Write`, `Edit`, or `apply_patch`
 - Missing or unreadable config files (`aliases.json`, `forbidden.json`)
 - `kubectl config current-context` / `kubectl config view` subprocess failing or not installed
 - Unreadable script files referenced in a Bash command

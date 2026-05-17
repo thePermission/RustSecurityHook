@@ -130,7 +130,10 @@ The entire tool call is refused (exit code 2).
 
 All other tool names are passed through without inspection (exit code 0).
 
-This fail-open behavior is intentional: an unrecognized tool name must not block the session. Only `Bash`, Claude `Write`/`Edit`, and Codex `apply_patch` trigger content checks.
+This fail-open behavior is intentional for tool calls that do not carry command text or editable
+content. Command-carrying tools are scanned when `tool_input.command` or `tool_input.cmd` is
+present. Claude `Write`/`Edit` and Codex `apply_patch` retain their dedicated handling described
+above.
 
 ## Exit Codes
 
