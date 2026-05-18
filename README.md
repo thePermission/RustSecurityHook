@@ -2,23 +2,15 @@
 
 A lean Claude Code and Codex `PreToolUse` hook. Before every protected tool call, `rsh` checks the command against a blacklist and blocks it on a match by exiting with a reason on stderr. Claude Code and Codex treat that as a refused tool call and surface the message back to the model.
 
-Out of the box, `rsh` ships with 40 rules across eleven categories:
+Out of the box, `rsh` covers:
 
-| Category | Rules |
-|---|---|
-| Kubernetes — Destructive | delete namespace/ns, delete --all, delete crd, force-delete, delete pv/pvc, delete clusterrole/binding, delete node, delete deployment/statefulset/daemonset |
-| Kubernetes — Pod Access | exec shell, run --privileged, debug node/, attach, proxy, cp (local → pod) |
-| Kubernetes — Privilege Escalation | create clusterrolebinding --clusterrole=cluster-admin, apply -f http(s):// |
-| Kubernetes — Service Disruption | drain |
-| Kubernetes — Subprocess Bypass | kubectl delete/exec in subprocess argument lists |
-| Helm | uninstall / delete |
-| Helm — Subprocess Bypass | helm uninstall in subprocess argument lists |
-| SQL — Destructive DML | DELETE FROM, TRUNCATE |
-| SQL — Destructive DDL | DROP (table/db/schema/…), ALTER TABLE, CREATE TABLE/DATABASE/SCHEMA |
-| Docker — Volume Destruction | volume rm/prune, system prune --volumes/-a, rm -v, compose down/rm -v (plugin + legacy) |
-| Docker — Container/Image Cleanup | container prune, image prune/rm/rmi, rm, compose down (plugin + legacy) |
+- **kubectl** — destructive deletes, pod access, privilege escalation, service disruption
+- **helm** — release uninstall/delete
+- **docker / docker-compose** — volume deletion, container and image cleanup
+- **SQL clients** (`psql`, `mysql`, `sqlite3`, …) — destructive DML and DDL keywords, matched against any binary
+- **Shell scripts** — when a command invokes a script (`bash script.sh`, `./deploy.sh`, `source file`, …), `rsh` reads and scans the script content before execution
 
-Run `rsh list` to see all active rules with their full patterns and reasons.
+See [`docs/rules.md`](docs/rules.md) for the full list of 45 rules grouped by binary, or run `rsh list` to inspect the active rules at any time.
 
 ## Scope and limitations
 
