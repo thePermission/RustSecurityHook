@@ -160,7 +160,7 @@ rsh alias <cmd> <alias>      Register an alias
 rsh detect-aliases [cmd]     Auto-detect aliases
 rsh forbid ...               Manage forbidden clusters/namespaces (see above)
 rsh help    (-h, --help)     Show help
-rsh version (-v, --version)  Show version
+rsh --version (-V)           Show version
 ```
 
 ## License
