@@ -250,6 +250,14 @@ fn main() -> ExitCode {
 fn list_rules() {
     use std::collections::BTreeMap;
 
+    let globally = disabled::flag_path_global().map(|p| p.exists()).unwrap_or(false);
+    let locally = disabled::flag_path_local().exists();
+    if globally {
+        println!("WARNING: rsh is currently DISABLED (global) — run `rsh on -g` to re-enable\n");
+    } else if locally {
+        println!("WARNING: rsh is currently DISABLED (local) — run `rsh on` to re-enable\n");
+    }
+
     let rules = blacklist::rules();
     let aliases = aliases::load();
     let disabled_set = disabled::load();
@@ -407,6 +415,9 @@ fn run_hook() -> ExitCode {
 }
 
 fn run_hook_from_str(input: &str) -> ExitCode {
+    if disabled::is_disabled() {
+        return ExitCode::SUCCESS;
+    }
     let Ok(input) = serde_json::from_str::<HookInput>(input) else {
         return ExitCode::SUCCESS;
     };
@@ -988,6 +999,23 @@ mod tests {
             "tool_input":{"path":"src"}
         }"#;
         assert_eq!(run_hook_from_str(input), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_hook_passes_through_when_globally_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
+        let flag = dir.path().join("rsh").join("disabled");
+        std::fs::create_dir_all(flag.parent().unwrap()).unwrap();
+        std::fs::write(&flag, "").unwrap();
+
+        let input = r#"{"tool_name":"Bash","tool_input":{"command":"kubectl delete ns prod"}}"#;
+        let result = run_hook_from_str(input);
+
+        std::fs::remove_file(&flag).unwrap();
+        unsafe { std::env::remove_var("XDG_CONFIG_HOME") };
+
+        assert_eq!(result, ExitCode::SUCCESS);
     }
 
     #[test]
