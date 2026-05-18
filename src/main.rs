@@ -62,6 +62,18 @@ enum Commands {
         /// Target shell
         shell: clap_complete::Shell,
     },
+    /// Disable all rsh checks (writes a flag file)
+    Off {
+        /// Disable globally (~/.config/rsh/disabled) instead of project-local (.rsh-disabled)
+        #[arg(short = 'g', long)]
+        global: bool,
+    },
+    /// Re-enable all rsh checks (removes the flag file)
+    On {
+        /// Remove the global flag (~/.config/rsh/disabled) instead of project-local (.rsh-disabled)
+        #[arg(short = 'g', long)]
+        global: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -230,6 +242,8 @@ fn main() -> ExitCode {
             );
             ExitCode::SUCCESS
         }
+        Some(Commands::Off { global }) => run_off(global),
+        Some(Commands::On { global }) => run_on(global),
     }
 }
 
@@ -644,6 +658,78 @@ fn run_forbid(action: ForbidAction) -> ExitCode {
     }
 }
 
+fn run_off(global: bool) -> ExitCode {
+    if global {
+        let path = match disabled::flag_path_global() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("rsh: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        };
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                eprintln!("rsh: failed to create directory: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        }
+        if path.exists() {
+            eprintln!("rsh: already disabled (global)");
+        } else {
+            if let Err(e) = std::fs::write(&path, "") {
+                eprintln!("rsh: failed to write flag file: {e:#}");
+                return ExitCode::FAILURE;
+            }
+            eprintln!("rsh: disabled (global) — run `rsh on -g` to re-enable");
+        }
+    } else {
+        let path = disabled::flag_path_local();
+        if path.exists() {
+            eprintln!("rsh: already disabled (local)");
+        } else {
+            if let Err(e) = std::fs::write(&path, "") {
+                eprintln!("rsh: failed to write flag file: {e:#}");
+                return ExitCode::FAILURE;
+            }
+            eprintln!("rsh: disabled (local) — run `rsh on` to re-enable");
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn run_on(global: bool) -> ExitCode {
+    if global {
+        let path = match disabled::flag_path_global() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("rsh: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        };
+        if !path.exists() {
+            eprintln!("rsh: already enabled (global)");
+        } else {
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!("rsh: failed to remove flag file: {e:#}");
+                return ExitCode::FAILURE;
+            }
+            eprintln!("rsh: enabled (global)");
+        }
+    } else {
+        let path = disabled::flag_path_local();
+        if !path.exists() {
+            eprintln!("rsh: already enabled (local)");
+        } else {
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!("rsh: failed to remove flag file: {e:#}");
+                return ExitCode::FAILURE;
+            }
+            eprintln!("rsh: enabled (local)");
+        }
+    }
+    ExitCode::SUCCESS
+}
+
 fn hook_command() -> String {
     // Prefer the bare name "rsh" when the binary is reachable via $PATH
     // (e.g. the user installed it through `cargo install --path .`).
@@ -902,5 +988,16 @@ mod tests {
             "tool_input":{"path":"src"}
         }"#;
         assert_eq!(run_hook_from_str(input), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_off_creates_local_flag_and_run_on_removes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let flag = dir.path().join(".rsh-disabled");
+        assert!(!flag.exists());
+        std::fs::write(&flag, "").unwrap();
+        assert!(flag.exists());
+        std::fs::remove_file(&flag).unwrap();
+        assert!(!flag.exists());
     }
 }
