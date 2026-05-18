@@ -2,11 +2,117 @@ use rsh::{aliases, blacklist, disabled, forbid};
 use rsh::{is_protected_path, run_check, run_check_content};
 
 use anyhow::{Context, Result};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
 use serde_json::json;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+#[derive(Parser)]
+#[command(name = "rsh", version, about = "Rust Security Hook — Claude/Codex PreToolUse hook")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Register rsh hooks for detected tools
+    Init {
+        /// Install globally (~/.claude/settings.json) instead of project-local
+        #[arg(short = 'g', long)]
+        global: bool,
+        /// Force a specific tool; auto-detects when omitted
+        #[arg(long, value_name = "TOOL")]
+        tool: Option<ToolArg>,
+    },
+    /// Run the blacklist against a literal command string
+    Check {
+        /// Command string to evaluate
+        command: String,
+    },
+    /// Show all configured rules, forbid lists, and aliases
+    #[command(alias = "rules")]
+    List,
+    /// Register a command alias
+    Alias {
+        /// Canonical command name (e.g. kubectl)
+        command: String,
+        /// Alias to register (e.g. k)
+        alias: String,
+    },
+    /// Auto-detect aliases by scanning $PATH for symlinks/hardlinks
+    DetectAliases {
+        /// Commands to scan; defaults to all rule binaries when empty
+        commands: Vec<String>,
+    },
+    /// Manage blacklist rules
+    Rule {
+        #[command(subcommand)]
+        action: RuleAction,
+    },
+    /// Manage forbidden clusters, namespaces, and databases
+    Forbid {
+        #[command(subcommand)]
+        action: ForbidAction,
+    },
+    /// Print shell completion script to stdout
+    Completions {
+        /// Target shell
+        shell: clap_complete::Shell,
+    },
+}
+
+#[derive(Subcommand)]
+enum RuleAction {
+    /// Disable a blacklist rule by ID
+    Disable {
+        /// Rule ID (see `rsh rule list`)
+        id: String,
+    },
+    /// Re-enable a disabled blacklist rule
+    Enable {
+        /// Rule ID (see `rsh rule list`)
+        id: String,
+    },
+    /// Show all rules with [DISABLED] marker where applicable
+    List,
+}
+
+#[derive(Subcommand)]
+enum ForbidAction {
+    /// Add a forbidden kubectl context (cluster)
+    Cluster { name: String },
+    /// Add a forbidden Kubernetes namespace
+    Namespace { name: String },
+    /// Add a forbidden database hostname
+    Database { hostname: String },
+    /// Remove an entry from the forbid list
+    Remove {
+        #[command(subcommand)]
+        target: ForbidRemoveTarget,
+    },
+    /// Show all forbidden entries
+    List,
+}
+
+#[derive(Subcommand)]
+enum ForbidRemoveTarget {
+    /// Remove a forbidden cluster
+    Cluster { name: String },
+    /// Remove a forbidden namespace
+    Namespace { name: String },
+    /// Remove a forbidden database
+    Database { hostname: String },
+}
+
+#[derive(ValueEnum, Clone)]
+enum ToolArg {
+    Claude,
+    Codex,
+    All,
+}
 
 #[derive(Deserialize)]
 struct HookInput {
@@ -820,6 +926,11 @@ fn install_codex_hook(value: &mut serde_json::Value, cmd: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cli_debug_assert() {
+        Cli::command().debug_assert();
+    }
 
     #[test]
     fn parse_init_options_defaults_to_auto() {
