@@ -2,11 +2,117 @@ use rsh::{aliases, blacklist, disabled, forbid};
 use rsh::{is_protected_path, run_check, run_check_content};
 
 use anyhow::{Context, Result};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
 use serde_json::json;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+#[derive(Parser)]
+#[command(name = "rsh", version, about = "Rust Security Hook — Claude/Codex PreToolUse hook")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Register rsh hooks for detected tools
+    Init {
+        /// Install globally (~/.claude/settings.json) instead of project-local
+        #[arg(short = 'g', long)]
+        global: bool,
+        /// Force a specific tool; auto-detects when omitted
+        #[arg(long, value_name = "TOOL")]
+        tool: Option<ToolArg>,
+    },
+    /// Run the blacklist against a literal command string
+    Check {
+        /// Command string to evaluate
+        command: String,
+    },
+    /// Show all configured rules, forbid lists, and aliases
+    #[command(alias = "rules")]
+    List,
+    /// Register a command alias
+    Alias {
+        /// Canonical command name (e.g. kubectl)
+        command: String,
+        /// Alias to register (e.g. k)
+        alias: String,
+    },
+    /// Auto-detect aliases by scanning $PATH for symlinks/hardlinks
+    DetectAliases {
+        /// Commands to scan; defaults to all rule binaries when empty
+        commands: Vec<String>,
+    },
+    /// Manage blacklist rules
+    Rule {
+        #[command(subcommand)]
+        action: RuleAction,
+    },
+    /// Manage forbidden clusters, namespaces, and databases
+    Forbid {
+        #[command(subcommand)]
+        action: ForbidAction,
+    },
+    /// Print shell completion script to stdout
+    Completions {
+        /// Target shell
+        shell: clap_complete::Shell,
+    },
+}
+
+#[derive(Subcommand)]
+enum RuleAction {
+    /// Disable a blacklist rule by ID
+    Disable {
+        /// Rule ID (see `rsh rule list`)
+        id: String,
+    },
+    /// Re-enable a disabled blacklist rule
+    Enable {
+        /// Rule ID (see `rsh rule list`)
+        id: String,
+    },
+    /// Show all rules with [DISABLED] marker where applicable
+    List,
+}
+
+#[derive(Subcommand)]
+enum ForbidAction {
+    /// Add a forbidden kubectl context (cluster)
+    Cluster { name: String },
+    /// Add a forbidden Kubernetes namespace
+    Namespace { name: String },
+    /// Add a forbidden database hostname
+    Database { hostname: String },
+    /// Remove an entry from the forbid list
+    Remove {
+        #[command(subcommand)]
+        target: ForbidRemoveTarget,
+    },
+    /// Show all forbidden entries
+    List,
+}
+
+#[derive(Subcommand)]
+enum ForbidRemoveTarget {
+    /// Remove a forbidden cluster
+    Cluster { name: String },
+    /// Remove a forbidden namespace
+    Namespace { name: String },
+    /// Remove a forbidden database
+    Database { hostname: String },
+}
+
+#[derive(ValueEnum, Clone)]
+enum ToolArg {
+    Claude,
+    Codex,
+    All,
+}
 
 #[derive(Deserialize)]
 struct HookInput {
@@ -58,16 +164,22 @@ struct InstallResult {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().collect();
-    match args.get(1).map(String::as_str) {
-        Some("init") => {
-            match parse_init_options(&args[2..]).and_then(init_hooks) {
+    let cli = Cli::parse();
+    match cli.command {
+        None => run_hook(),
+        Some(Commands::Init { global, tool }) => {
+            let requested_targets = tool.map(|t| match t {
+                ToolArg::Claude => vec![HookTarget::Claude],
+                ToolArg::Codex => vec![HookTarget::Codex],
+                ToolArg::All => vec![HookTarget::Claude, HookTarget::Codex],
+            });
+            match init_hooks(InitOptions { global, requested_targets }) {
                 Ok(results) => {
-                    for result in &results {
+                    for r in &results {
                         eprintln!(
                             "rsh hook installed for {} in {}",
-                            result.target.label(),
-                            result.path.display()
+                            r.target.label(),
+                            r.path.display()
                         );
                     }
                     let _ = run_detect(&rule_bins());
@@ -79,84 +191,46 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some("check") => {
-            let cmd = args.get(2).map(String::as_str).unwrap_or("");
-            run_check(cmd)
-        }
-        Some("list") | Some("rules") => {
+        Some(Commands::Check { command }) => run_check(&command),
+        Some(Commands::List) => {
             list_rules();
             ExitCode::SUCCESS
         }
-        Some("alias") => match (args.get(2), args.get(3)) {
-            (Some(command), Some(alias)) => match aliases::add(command, alias) {
+        Some(Commands::Alias { command, alias }) => {
+            match aliases::add(&command, &alias) {
                 Ok((path, true)) => {
                     eprintln!("added alias {alias} → {command} in {}", path.display());
                     ExitCode::SUCCESS
                 }
                 Ok((path, false)) => {
-                    eprintln!("alias {alias} → {command} already present ({})", path.display());
+                    eprintln!(
+                        "alias {alias} → {command} already present ({})",
+                        path.display()
+                    );
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
                     eprintln!("alias failed: {e:#}");
                     ExitCode::FAILURE
                 }
-            },
-            _ => {
-                eprintln!("usage: rsh alias <command> <alias>");
-                ExitCode::FAILURE
             }
-        },
-        Some("detect-aliases") => {
-            let targets: Vec<String> = if args.len() > 2 {
-                args[2..].to_vec()
-            } else {
-                rule_bins()
-            };
+        }
+        Some(Commands::DetectAliases { commands }) => {
+            let targets = if commands.is_empty() { rule_bins() } else { commands };
             run_detect(&targets)
         }
-        Some("rule") => run_rule(&args[2..]),
-        Some("forbid") => run_forbid(&args[2..]),
-        Some("--help") | Some("-h") | Some("help") => {
-            print_help();
+        Some(Commands::Rule { action }) => run_rule(action),
+        Some(Commands::Forbid { action }) => run_forbid(action),
+        Some(Commands::Completions { shell }) => {
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "rsh",
+                &mut std::io::stdout(),
+            );
             ExitCode::SUCCESS
         }
-        Some("--version") | Some("-v") | Some("version") => {
-            println!("rsh {}", env!("CARGO_PKG_VERSION"));
-            ExitCode::SUCCESS
-        }
-        _ => run_hook(),
     }
-}
-
-fn print_help() {
-    eprintln!(
-        "rsh - Rust Security Hook\n\
-         \n\
-         USAGE:\n\
-           rsh                       Hook mode: reads Claude/Codex PreToolUse JSON from stdin\n\
-           rsh init [-g|--global] [--tool claude|codex|all]\n\
-                                     Register rsh hooks for detected tools.\n\
-                                     Claude: ~/.claude/settings.json or ./.claude/settings.json\n\
-                                     Codex:  ~/.codex/hooks.json or ./.codex/hooks.json\n\
-           rsh check \"<command>\"    Run the blacklist against a literal command string\n\
-           rsh list                  Show all configured blacklist rules and aliases\n\
-           rsh alias <cmd> <alias>   Register that <alias> on this system points to <cmd>\n\
-                                     (e.g. `rsh alias kubectl k` if `k` is a symlink/wrapper for kubectl)\n\
-           rsh detect-aliases [cmd]  Auto-detect aliases by scanning $PATH for symlinks/hardlinks.\n\
-                                     With no argument, scans all commands referenced by rules.\n\
-           rsh rule disable <id>     Disable a blacklist rule by ID.\n\
-           rsh rule enable <id>      Re-enable a disabled blacklist rule.\n\
-           rsh rule list             Show all rules with [DISABLED] marker where applicable.\n\
-           rsh forbid cluster <name>              Add a forbidden cluster (context).\n\
-           rsh forbid namespace <name>            Add a forbidden namespace.\n\
-           rsh forbid database <hostname>         Add a forbidden database hostname.\n\
-           rsh forbid remove cluster|namespace|database <name>\n\
-                                              Remove an entry from the forbid list.\n\
-           rsh forbid list               Show the current forbid lists.\n\
-           rsh help                  Show this message\n\
-           rsh -v | --version        Show version"
-    );
 }
 
 fn list_rules() {
@@ -394,149 +468,103 @@ fn is_valid_rule_id(id: &str) -> bool {
     blacklist::rules().iter().any(|r| r.id == id)
 }
 
-fn run_rule(args: &[String]) -> ExitCode {
-    let usage = "usage:\n  \
-        rsh rule disable <id>\n  \
-        rsh rule enable <id>\n  \
-        rsh rule list";
-
-    match args.first().map(String::as_str) {
-        Some("disable") => match args.get(1) {
-            Some(id) => {
-                if !is_valid_rule_id(id) {
-                    eprintln!("error: unknown rule id '{id}'");
-                    eprintln!("hint: run `rsh rule list` to see all valid rule IDs");
-                    return ExitCode::FAILURE;
+fn run_rule(action: RuleAction) -> ExitCode {
+    match action {
+        RuleAction::Disable { id } => {
+            if !is_valid_rule_id(&id) {
+                eprintln!("error: unknown rule id '{id}'");
+                eprintln!("hint: run `rsh rule list` to see all valid rule IDs");
+                return ExitCode::FAILURE;
+            }
+            match disabled::add(&id) {
+                Ok(true) => {
+                    eprintln!("rule: disabled '{id}'");
+                    ExitCode::SUCCESS
                 }
-                match disabled::add(id) {
-                    Ok(true) => {
-                        eprintln!("rule: disabled '{id}'");
-                        ExitCode::SUCCESS
-                    }
-                    Ok(false) => {
-                        eprintln!("rule: '{id}' was already disabled");
-                        ExitCode::SUCCESS
-                    }
-                    Err(e) => {
-                        eprintln!("rule failed: {e:#}");
-                        ExitCode::FAILURE
-                    }
+                Ok(false) => {
+                    eprintln!("rule: '{id}' was already disabled");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("rule failed: {e:#}");
+                    ExitCode::FAILURE
                 }
             }
-            None => {
-                eprintln!("usage: rsh rule disable <id>");
-                ExitCode::FAILURE
+        }
+        RuleAction::Enable { id } => {
+            if !is_valid_rule_id(&id) {
+                eprintln!("error: unknown rule id '{id}'");
+                eprintln!("hint: run `rsh rule list` to see all valid rule IDs");
+                return ExitCode::FAILURE;
             }
-        },
-        Some("enable") => match args.get(1) {
-            Some(id) => {
-                if !is_valid_rule_id(id) {
-                    eprintln!("error: unknown rule id '{id}'");
-                    eprintln!("hint: run `rsh rule list` to see all valid rule IDs");
-                    return ExitCode::FAILURE;
+            match disabled::remove(&id) {
+                Ok(true) => {
+                    eprintln!("rule: enabled '{id}'");
+                    ExitCode::SUCCESS
                 }
-                match disabled::remove(id) {
-                    Ok(true) => {
-                        eprintln!("rule: enabled '{id}'");
-                        ExitCode::SUCCESS
-                    }
-                    Ok(false) => {
-                        eprintln!("rule: '{id}' was already enabled");
-                        ExitCode::SUCCESS
-                    }
-                    Err(e) => {
-                        eprintln!("rule failed: {e:#}");
-                        ExitCode::FAILURE
-                    }
+                Ok(false) => {
+                    eprintln!("rule: '{id}' was already enabled");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("rule failed: {e:#}");
+                    ExitCode::FAILURE
                 }
             }
-            None => {
-                eprintln!("usage: rsh rule enable <id>");
-                ExitCode::FAILURE
-            }
-        },
-        Some("list") => {
+        }
+        RuleAction::List => {
             list_rules();
             ExitCode::SUCCESS
-        }
-        _ => {
-            eprintln!("{usage}");
-            ExitCode::FAILURE
         }
     }
 }
 
-fn run_forbid(args: &[String]) -> ExitCode {
-    let usage = "usage:\n  \
-        rsh forbid cluster <name>\n  \
-        rsh forbid namespace <name>\n  \
-        rsh forbid database <hostname>\n  \
-        rsh forbid remove cluster|namespace|database <name>\n  \
-        rsh forbid list";
-
-    match args.first().map(String::as_str) {
-        Some("cluster") => match args.get(1) {
-            Some(name) => match forbid::add_cluster(name) {
-                Ok(true) => {
-                    eprintln!("forbid: added cluster '{name}'");
-                    ExitCode::SUCCESS
-                }
-                Ok(false) => {
-                    eprintln!("forbid: cluster '{name}' was already on the list");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("forbid failed: {e:#}");
-                    ExitCode::FAILURE
-                }
-            },
-            None => {
-                eprintln!("usage: rsh forbid cluster <name>");
+fn run_forbid(action: ForbidAction) -> ExitCode {
+    match action {
+        ForbidAction::Cluster { name } => match forbid::add_cluster(&name) {
+            Ok(true) => {
+                eprintln!("forbid: added cluster '{name}'");
+                ExitCode::SUCCESS
+            }
+            Ok(false) => {
+                eprintln!("forbid: cluster '{name}' was already on the list");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("forbid failed: {e:#}");
                 ExitCode::FAILURE
             }
         },
-        Some("namespace") => match args.get(1) {
-            Some(name) => match forbid::add_namespace(name) {
-                Ok(true) => {
-                    eprintln!("forbid: added namespace '{name}'");
-                    ExitCode::SUCCESS
-                }
-                Ok(false) => {
-                    eprintln!("forbid: namespace '{name}' was already on the list");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("forbid failed: {e:#}");
-                    ExitCode::FAILURE
-                }
-            },
-            None => {
-                eprintln!("usage: rsh forbid namespace <name>");
+        ForbidAction::Namespace { name } => match forbid::add_namespace(&name) {
+            Ok(true) => {
+                eprintln!("forbid: added namespace '{name}'");
+                ExitCode::SUCCESS
+            }
+            Ok(false) => {
+                eprintln!("forbid: namespace '{name}' was already on the list");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("forbid failed: {e:#}");
                 ExitCode::FAILURE
             }
         },
-        Some("database") => match args.get(1) {
-            Some(name) => match forbid::add_database(name) {
-                Ok(true) => {
-                    eprintln!("forbid: added database '{name}'");
-                    ExitCode::SUCCESS
-                }
-                Ok(false) => {
-                    eprintln!("forbid: database '{name}' was already on the list");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("forbid failed: {e:#}");
-                    ExitCode::FAILURE
-                }
-            },
-            None => {
-                eprintln!("usage: rsh forbid database <hostname>");
+        ForbidAction::Database { hostname } => match forbid::add_database(&hostname) {
+            Ok(true) => {
+                eprintln!("forbid: added database '{hostname}'");
+                ExitCode::SUCCESS
+            }
+            Ok(false) => {
+                eprintln!("forbid: database '{hostname}' was already on the list");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("forbid failed: {e:#}");
                 ExitCode::FAILURE
             }
         },
-        Some("remove") => match (args.get(1).map(String::as_str), args.get(2)) {
-            (Some("cluster"), Some(name)) => match forbid::remove_cluster(name) {
+        ForbidAction::Remove { target } => match target {
+            ForbidRemoveTarget::Cluster { name } => match forbid::remove_cluster(&name) {
                 Ok(true) => {
                     eprintln!("forbid: removed cluster '{name}'");
                     ExitCode::SUCCESS
@@ -550,7 +578,7 @@ fn run_forbid(args: &[String]) -> ExitCode {
                     ExitCode::FAILURE
                 }
             },
-            (Some("namespace"), Some(name)) => match forbid::remove_namespace(name) {
+            ForbidRemoveTarget::Namespace { name } => match forbid::remove_namespace(&name) {
                 Ok(true) => {
                     eprintln!("forbid: removed namespace '{name}'");
                     ExitCode::SUCCESS
@@ -564,26 +592,24 @@ fn run_forbid(args: &[String]) -> ExitCode {
                     ExitCode::FAILURE
                 }
             },
-            (Some("database"), Some(name)) => match forbid::remove_database(name) {
-                Ok(true) => {
-                    eprintln!("forbid: removed database '{name}'");
-                    ExitCode::SUCCESS
+            ForbidRemoveTarget::Database { hostname } => {
+                match forbid::remove_database(&hostname) {
+                    Ok(true) => {
+                        eprintln!("forbid: removed database '{hostname}'");
+                        ExitCode::SUCCESS
+                    }
+                    Ok(false) => {
+                        eprintln!("forbid: database '{hostname}' was not on the list");
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("forbid failed: {e:#}");
+                        ExitCode::FAILURE
+                    }
                 }
-                Ok(false) => {
-                    eprintln!("forbid: database '{name}' was not on the list");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("forbid failed: {e:#}");
-                    ExitCode::FAILURE
-                }
-            },
-            _ => {
-                eprintln!("usage: rsh forbid remove cluster|namespace|database <name>");
-                ExitCode::FAILURE
             }
         },
-        Some("list") => {
+        ForbidAction::List => {
             let cfg = forbid::load();
             if cfg.is_empty() {
                 println!("(no forbidden clusters, namespaces, or databases configured)");
@@ -614,10 +640,6 @@ fn run_forbid(args: &[String]) -> ExitCode {
                 }
             }
             ExitCode::SUCCESS
-        }
-        _ => {
-            eprintln!("{usage}");
-            ExitCode::FAILURE
         }
     }
 }
@@ -655,37 +677,6 @@ fn which(name: &str) -> Option<PathBuf> {
         }
     }
     None
-}
-
-fn parse_init_options(args: &[String]) -> Result<InitOptions> {
-    let mut options = InitOptions::default();
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "-g" | "--global" => {
-                options.global = true;
-                i += 1;
-            }
-            "--tool" => {
-                let Some(value) = args.get(i + 1) else {
-                    anyhow::bail!("missing value for --tool (expected claude, codex, or all)");
-                };
-                options.requested_targets = Some(parse_requested_targets(value)?);
-                i += 2;
-            }
-            other => anyhow::bail!("unknown init argument: {other}"),
-        }
-    }
-    Ok(options)
-}
-
-fn parse_requested_targets(value: &str) -> Result<Vec<HookTarget>> {
-    match value {
-        "claude" => Ok(vec![HookTarget::Claude]),
-        "codex" => Ok(vec![HookTarget::Codex]),
-        "all" => Ok(vec![HookTarget::Claude, HookTarget::Codex]),
-        _ => anyhow::bail!("invalid --tool value '{value}' (expected claude, codex, or all)"),
-    }
 }
 
 fn init_hooks(options: InitOptions) -> Result<Vec<InstallResult>> {
@@ -822,17 +813,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_init_options_defaults_to_auto() {
-        let opts = parse_init_options(&[]).unwrap();
-        assert!(!opts.global);
-        assert!(opts.requested_targets.is_none());
-    }
-
-    #[test]
-    fn parse_init_options_accepts_global_and_tool() {
-        let opts = parse_init_options(&["--global".into(), "--tool".into(), "codex".into()]).unwrap();
-        assert!(opts.global);
-        assert_eq!(opts.requested_targets, Some(vec![HookTarget::Codex]));
+    fn cli_debug_assert() {
+        Cli::command().debug_assert();
     }
 
     #[test]

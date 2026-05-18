@@ -75,7 +75,7 @@ The binary dispatches on `argv[1]`:
 
 | Mode             | Trigger                          | Behavior                                                                                                  |
 |------------------|----------------------------------|-----------------------------------------------------------------------------------------------------------|
-| Hook (default)   | no/unknown `argv[1]`             | Reads PreToolUse JSON from stdin. `Bash`: splits the command into segments (`split_segments`), runs each through the ToolChecker parallel pipeline (`run_parallel_checks`). `Write`/`Edit`: checks `file_path` against protected paths, then runs the content through the same pipeline. `apply_patch`: scans `tool_input.command` through the same content pipeline. Other tool names pass through (exit 0). |
+| Hook (default)   | no `argv[1]` (no subcommand)     | Reads PreToolUse JSON from stdin. `Bash`: splits the command into segments (`split_segments`), runs each through the ToolChecker parallel pipeline (`run_parallel_checks`). `Write`/`Edit`: checks `file_path` against protected paths, then runs the content through the same pipeline. `apply_patch`: scans `tool_input.command` through the same content pipeline. Other tool names pass through (exit 0). |
 | `check`          | `rsh check "<cmd>"`              | Checks the argument directly against both pipelines — useful for testing a rule locally.                  |
 | `init`           | `rsh init [-g\|--global] [--tool claude\|codex\|all]` | Auto-detects supported tools or installs explicitly into Claude `settings.json` and/or Codex `hooks.json`, then runs `detect-aliases`. |
 | `list` / `rules` | `rsh list`                       | Prints all rules grouped by `category` (with `bin`, full expanded regex), the forbid lists, and the alias map. |
@@ -83,7 +83,9 @@ The binary dispatches on `argv[1]`:
 | `detect-aliases` | `rsh detect-aliases [cmd]`       | Scans `$PATH` for symlinks/hardlinks whose `realpath` matches `cmd` (or every bound rule binary).         |
 | `forbid`         | `rsh forbid ...`                 | Manages forbidden clusters, namespaces, and database hosts. Sub-commands: `cluster <name>`, `namespace <name>`, `database <host>`, `remove cluster\|namespace\|database <name>`, `list`. |
 | `help`           | `rsh help` / `-h` / `--help`     | Usage summary.                                                                                            |
-| `version`        | `rsh version` / `-v` / `--version` | Prints the Cargo package version.                                                                       |
+| `version`        | `--version` / `-V`               | Prints the Cargo package version.                                                                       |
+| `off`            | `rsh off [-g\|--global]`           | Creates a flag file (`.rsh-disabled` locally, `~/.config/rsh/disabled` globally) that causes the hook to exit 0 immediately, passing all tool calls through unchecked. |
+| `on`             | `rsh on [-g\|--global]`            | Removes the flag file created by `rsh off`. Prints "already enabled" if the flag is absent. Agents are blocked from running `rsh off`/`on` by the `rsh-self-disable` blacklist rule. |
 
 Hook input schema (PreToolUse event from Claude Code or Codex): JSON with at least `tool_name` (string) and `tool_input` (object). For `Bash` and Codex `apply_patch`, the command lives in `tool_input.command`. Claude `Write` uses `tool_input.content`; Claude `Edit` uses `tool_input.new_string`. For unrecognized tool names, or for empty/invalid stdin, `rsh` lets the call through (exit 0). This fail-open behavior is intentional — a crash in the hook must not lock up the whole session.
 
