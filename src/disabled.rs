@@ -26,6 +26,34 @@ pub fn config_path() -> Result<PathBuf> {
     Ok(base.join("rsh").join("disabled-rules.json"))
 }
 
+pub fn flag_path_global() -> Result<PathBuf> {
+    let base = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        PathBuf::from(xdg)
+    } else if cfg!(windows) {
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            PathBuf::from(appdata)
+        } else {
+            aliases::home_dir()
+                .context("could not determine home directory")?
+                .join(".config")
+        }
+    } else {
+        aliases::home_dir()
+            .context("could not determine home directory")?
+            .join(".config")
+    };
+    Ok(base.join("rsh").join("disabled"))
+}
+
+pub fn flag_path_local() -> PathBuf {
+    PathBuf::from(".rsh-disabled")
+}
+
+pub fn is_disabled() -> bool {
+    flag_path_global().map(|p| p.exists()).unwrap_or(false)
+        || flag_path_local().exists()
+}
+
 pub fn load() -> HashSet<String> {
     let path = match config_path() {
         Ok(p) => p,
@@ -135,5 +163,16 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         let ids: Vec<String> = serde_json::from_str(&text).unwrap();
         assert_eq!(ids, vec!["a-rule", "m-rule", "z-rule"]);
+    }
+
+    #[test]
+    fn flag_path_global_ends_with_rsh_disabled() {
+        let path = flag_path_global().unwrap();
+        assert!(path.ends_with("rsh/disabled") || path.ends_with(r"rsh\disabled"));
+    }
+
+    #[test]
+    fn flag_path_local_is_dot_rsh_disabled() {
+        assert_eq!(flag_path_local(), PathBuf::from(".rsh-disabled"));
     }
 }
