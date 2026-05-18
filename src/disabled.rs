@@ -7,7 +7,7 @@ use crate::aliases;
 
 pub static DISABLED: LazyLock<HashSet<String>> = LazyLock::new(load);
 
-pub fn config_path() -> Result<PathBuf> {
+fn rsh_config_base() -> Result<PathBuf> {
     let base = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         PathBuf::from(xdg)
     } else if cfg!(windows) {
@@ -23,26 +23,15 @@ pub fn config_path() -> Result<PathBuf> {
             .context("could not determine home directory")?
             .join(".config")
     };
-    Ok(base.join("rsh").join("disabled-rules.json"))
+    Ok(base.join("rsh"))
+}
+
+pub fn config_path() -> Result<PathBuf> {
+    Ok(rsh_config_base()?.join("disabled-rules.json"))
 }
 
 pub fn flag_path_global() -> Result<PathBuf> {
-    let base = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-        PathBuf::from(xdg)
-    } else if cfg!(windows) {
-        if let Some(appdata) = std::env::var_os("APPDATA") {
-            PathBuf::from(appdata)
-        } else {
-            aliases::home_dir()
-                .context("could not determine home directory")?
-                .join(".config")
-        }
-    } else {
-        aliases::home_dir()
-            .context("could not determine home directory")?
-            .join(".config")
-    };
-    Ok(base.join("rsh").join("disabled"))
+    Ok(rsh_config_base()?.join("disabled"))
 }
 
 pub fn flag_path_local() -> PathBuf {
@@ -174,5 +163,21 @@ mod tests {
     #[test]
     fn flag_path_local_is_dot_rsh_disabled() {
         assert_eq!(flag_path_local(), PathBuf::from(".rsh-disabled"));
+    }
+
+    #[test]
+    fn is_disabled_returns_true_when_global_flag_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", dir.path());
+        }
+        let flag = dir.path().join("rsh").join("disabled");
+        std::fs::create_dir_all(flag.parent().unwrap()).unwrap();
+        std::fs::write(&flag, "").unwrap();
+        assert!(is_disabled());
+        std::fs::remove_file(&flag).unwrap();
+        unsafe {
+            std::env::remove_var("XDG_CONFIG_HOME");
+        }
     }
 }
