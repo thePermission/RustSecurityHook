@@ -354,14 +354,14 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
     // ---- rsh self-protection ------------------------------------------
     (
         "rsh-self-disable",
-        "rsh — Self-Protection",
+        "rsh Self-Protection",
         Some("rsh"),
         r"\s+(off|on)\b",
         "agents must not disable the security hook",
     ),
     (
         "rsh-guard-flag-file",
-        "rsh — Self-Protection",
+        "rsh Self-Protection",
         None,
         r"(?:rsh/disabled|\.rsh-disabled)",
         "agents must not access or rename rsh flag files",
