@@ -35,7 +35,7 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/thePermission/RustSecurityHook/releases/latest/download/rsh-installer.ps1 | iex"
 ```
 
-By default the binary is installed to `~/.cargo/bin` (or the platform equivalent) and that directory is appended to your `PATH` automatically.
+By default the binary is installed to `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\rsh\bin`) and that directory is appended to your `PATH` automatically. No Rust toolchain required.
 
 ### Supported platforms
 
