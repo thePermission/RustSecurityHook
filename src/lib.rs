@@ -37,6 +37,8 @@ pub fn is_protected_path(path: &str) -> bool {
         || p.ends_with("/.config/rsh")
         || p.starts_with(".config/rsh/")
         || p == ".config/rsh"
+        || p.ends_with("/.rsh-disabled")
+        || p == ".rsh-disabled"
 }
 
 #[cfg(test)]
@@ -63,5 +65,13 @@ mod tests {
         assert!(!is_protected_path(""));
         assert!(!is_protected_path("my.config/rsh/file.json"));
         assert!(!is_protected_path("/var/my.config/rsh/app.yaml"));
+    }
+
+    #[test]
+    fn protected_path_matches_local_rsh_disabled() {
+        assert!(is_protected_path(".rsh-disabled"));
+        assert!(is_protected_path("/project/.rsh-disabled"));
+        assert!(!is_protected_path(".rsh-disabled-backup"));
+        assert!(!is_protected_path("rsh-disabled"));
     }
 }
