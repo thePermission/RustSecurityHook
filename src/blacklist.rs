@@ -351,6 +351,21 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         r"\.config[/\\]rsh(?:[/\\]|\s|$)",
         "Prevents any Bash access to the rsh config directory — protects disabled-rules, aliases, and forbidden lists",
     ),
+    // ---- rsh self-protection ------------------------------------------
+    (
+        "rsh-self-disable",
+        "rsh — Self-Protection",
+        Some("rsh"),
+        r"\s+(off|on)\b",
+        "agents must not disable the security hook",
+    ),
+    (
+        "rsh-guard-flag-file",
+        "rsh — Self-Protection",
+        None,
+        r"(?:rsh/disabled|\.rsh-disabled)",
+        "agents must not access or rename rsh flag files",
+    ),
 ];
 
 static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
@@ -922,9 +937,11 @@ mod tests {
             "k8s-proxy",
             "k8s-run-privileged",
             "k8s-subprocess-list",
+            "rsh-guard-flag-file",
             "rsh-protect-config-access",
             "rsh-protect-disable",
             "rsh-protect-forbid-remove",
+            "rsh-self-disable",
             "sql-alter-table",
             "sql-create-ddl",
             "sql-delete",
@@ -1080,5 +1097,35 @@ mod tests {
         assert!(check_for_bin(r#"psql -c "DELETE FROM users""#, None).is_some());
         // kubectl rules must NOT fire in bin=None check
         assert!(check_for_bin("kubectl delete ns prod", None).is_none());
+    }
+
+    #[test]
+    fn blocks_rsh_off_and_on() {
+        assert!(blocks("rsh off"));
+        assert!(blocks("rsh on"));
+        assert_eq!(hit_id("rsh off"), Some("rsh-self-disable"));
+        assert_eq!(hit_id("rsh on"), Some("rsh-self-disable"));
+    }
+
+    #[test]
+    fn allows_other_rsh_subcommands() {
+        assert!(!blocks("rsh list"));
+        assert!(!blocks("rsh check foo"));
+        assert!(!blocks("rsh init"));
+    }
+
+    #[test]
+    fn blocks_commands_referencing_flag_files() {
+        // These should be blocked by rsh-guard-flag-file
+        assert!(blocks("rm ~/.rsh-disabled"));
+        assert!(blocks("mv .rsh-disabled /tmp/bak"));
+        assert!(blocks("touch /home/user/.rsh-disabled"));
+        assert_eq!(hit_id("rm ~/.rsh-disabled"), Some("rsh-guard-flag-file"));
+    }
+
+    #[test]
+    fn allows_commands_not_referencing_flag_files() {
+        assert!(!blocks("ls ~/"));
+        assert!(!blocks("cat ~/myfile.txt"));
     }
 }
