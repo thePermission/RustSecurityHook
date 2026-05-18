@@ -159,6 +159,7 @@ rsh list                     Show all rules, forbidden entries, and aliases
 rsh alias <cmd> <alias>      Register an alias
 rsh detect-aliases [cmd]     Auto-detect aliases
 rsh forbid ...               Manage forbidden clusters/namespaces (see above)
+rsh completions <shell>      Print shell completion script to stdout (bash, zsh, fish, powershell, elvish)
 rsh help    (-h, --help)     Show help
 rsh --version (-V)           Show version
 ```
