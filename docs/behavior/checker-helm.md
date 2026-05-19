@@ -37,6 +37,8 @@ Note: `helm install`, `helm upgrade`, `helm list`, `helm get`, `helm status`, an
 
 After the blacklist passes, `HelmChecker` extracts the target cluster and namespace from the command and checks them against the configured forbid lists. This blocks individually safe commands (e.g., `helm list`) that target a protected environment.
 
+The forbid extractor identifies the actual helm token first, so wrapper flags before `helm` are not treated as Helm namespace or kube-context flags.
+
 See [[forbid-system]] for target extraction, kubeconfig fallback behavior, and the CLI.
 
 ## Subprocess Bypass

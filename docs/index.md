@@ -76,6 +76,7 @@ Each tool family has its own checker with its own set of measures:
 |---|---|
 | [[forbid-system\|forbid-system.md]] | Forbid lists — storage, CLI, cluster/namespace/database target extraction |
 | [[alias-system\|alias-system.md]] | Alias registration, auto-detection, and runtime expansion |
+| [[secret-file-protection\|secret-file-protection.md]] | Secret file path protection for Read, Write, Edit, and Bash |
 | [[fast-path-optimization\|fast-path-optimization.md]] | BinGroup fast-path — skipping all checks when no known tool is present |
 
 ## Architecture decision records
@@ -90,10 +91,13 @@ Each tool family has its own checker with its own set of measures:
 | [[006-kubernetes-helm-initial-blacklist\|adr/006-kubernetes-helm-initial-blacklist.md]] | Initial Kubernetes and Helm blacklist rules |
 | [[007-alias-system-design\|adr/007-alias-system-design.md]] | Alias system: storage format, auto-detection, runtime caching |
 | [[008-rule-disable-enable\|adr/008-rule-disable-enable.md]] | Per-rule disable/enable toggle |
-| [[009-bingroup-fast-path\|adr/009-bingroup-fast-path.md]] | BinGroup fast-path |
+| [[001-bingroup-fast-path\|adr/001-bingroup-fast-path.md]] | BinGroup fast-path |
+| [[009-rsh-self-protection\|adr/009-rsh-self-protection.md]] | rsh self-protection rules and protected config paths |
 | [[010-criterion-benchmarks\|adr/010-criterion-benchmarks.md]] | Criterion benchmark suite |
 | [[011-tool-checker-parallel-pipeline\|adr/011-tool-checker-parallel-pipeline.md]] | ToolChecker trait and parallel check pipeline |
 | [[012-per-checker-documentation-structure\|adr/012-per-checker-documentation-structure.md]] | Per-checker documentation structure — replacing thematic docs |
+| [[013-secret-file-protection\|adr/013-secret-file-protection.md]] | Secret file path protection |
+| [[014-shell-tokenization-and-scoped-target-extraction\|adr/014-shell-tokenization-and-scoped-target-extraction.md]] | Shell tokenization, home-path expansion, and scoped target extraction |
 
 ## Quick reference
 

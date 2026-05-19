@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use rsh::run_check;
 
 fn bench_harmless(c: &mut Criterion) {
@@ -34,10 +34,7 @@ fn bench_blocked_k8s(c: &mut Criterion) {
 }
 
 fn bench_blocked_helm(c: &mut Criterion) {
-    let commands = [
-        "helm uninstall my-release",
-        "helm rollback my-release 0",
-    ];
+    let commands = ["helm uninstall my-release", "helm rollback my-release 0"];
     let mut group = c.benchmark_group("blocked_helm");
     for cmd in commands {
         group.bench_with_input(BenchmarkId::from_parameter(cmd), cmd, |b, cmd| {
@@ -59,5 +56,11 @@ fn bench_edge(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_harmless, bench_blocked_k8s, bench_blocked_helm, bench_edge);
+criterion_group!(
+    benches,
+    bench_harmless,
+    bench_blocked_k8s,
+    bench_blocked_helm,
+    bench_edge
+);
 criterion_main!(benches);

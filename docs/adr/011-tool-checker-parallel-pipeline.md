@@ -36,8 +36,9 @@ Each concrete implementation encapsulates the rules for one tool family:
 | `DockerChecker` | `docker`, `docker-compose` and aliases | No |
 | `RshChecker` | `rsh` self-protection rules | No |
 | `FallbackChecker` | `bin=None` rules (SQL, subprocess bypass, rsh config protection) + `forbid::check_db` | Always included |
+| `SecretFileChecker` | secret file path access from command tokens | Always included |
 
-`FallbackChecker` returns an empty `bins()` slice and is always included by `detect_checkers`,
+`FallbackChecker` and `SecretFileChecker` return empty `bins()` slices and are always included by `detect_checkers`,
 so rules that are not tied to a specific binary continue to run on every segment.
 
 ### Segment classification
@@ -56,6 +57,11 @@ splits the command on shell separators (`;`, `&&`, `||`, `|`, `\n`) and classifi
 fragment: if the fragment invokes a known interpreter (`bash`, `sh`, `python`, …) with a
 file argument, or executes a path directly (`./foo.sh`, `/usr/local/bin/script`), it becomes
 `Segment::Script`; otherwise `Segment::Direct`.
+
+Fragments are tokenized through the shared shell tokenizer. That tokenizer now uses
+`shell-words` with a small fallback parser for malformed input. Script file paths are
+expanded for common home-directory forms before reading (`~`, `~/...`, `$HOME/...`,
+`${HOME}/...`).
 
 ### Parallel execution
 
@@ -99,8 +105,10 @@ relevant to their tool without touching the BinGroup fast-path used by the old `
   `checker::split_segments` + `checker::run_parallel_checks`. The old `script_paths_in`,
   `extract_script_path`, and `strip_quotes` helpers are gone.
 - **`src/blacklist.rs`** gains `check_for_bin` but is otherwise unchanged.
-- **`src/forbid.rs`** is unchanged. Checkers call `forbid::check_with` (for kubectl/helm)
-  or `forbid::check_db` (for the fallback) directly.
+- **`src/forbid.rs`** is called directly by checkers. Kubectl and Helm forbid checks
+  now scope explicit flag extraction to arguments after the identified tool token so
+  wrapper flags are not mistaken for tool flags.
 - **`src/main.rs`** is unchanged.
 - **Exit-code contract** (0 = allow, 2 = block) is preserved.
-- **No new dependencies** are required.
+- The original pipeline required no new dependency. The shared shell tokenizer later
+  moved to `shell-words`; see ADR 014.

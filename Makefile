@@ -1,5 +1,21 @@
 NAME ?= main
 
+.PHONY: fmt fmt-check clippy test ci bench bench-save bench-compare
+
+fmt:
+	cargo fmt
+
+fmt-check:
+	cargo fmt --check
+
+clippy:
+	cargo clippy --all-targets --all-features -- -D warnings
+
+test:
+	cargo test
+
+ci: fmt-check clippy test
+
 bench:
 	cargo bench --bench hook 2>/dev/null
 

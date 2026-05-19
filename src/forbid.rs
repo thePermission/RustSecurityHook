@@ -22,6 +22,9 @@ use std::sync::LazyLock;
 use crate::aliases::{self, AliasMap};
 use crate::shell;
 
+pub const INVALID_CONFIG_MESSAGE: &str =
+    "invalid forbid configuration; refusing matching commands until forbidden.json is fixed";
+
 static FORBID_TOKENS: LazyLock<Vec<String>> = LazyLock::new(|| {
     let mut tokens = Vec::new();
     for tool in TOOLS {
@@ -43,11 +46,16 @@ pub struct ForbidConfig {
     pub namespaces: Vec<String>,
     #[serde(default)]
     pub databases: Vec<String>,
+    #[serde(skip)]
+    pub invalid: bool,
 }
 
 impl ForbidConfig {
     pub fn is_empty(&self) -> bool {
-        self.clusters.is_empty() && self.namespaces.is_empty() && self.databases.is_empty()
+        !self.invalid
+            && self.clusters.is_empty()
+            && self.namespaces.is_empty()
+            && self.databases.is_empty()
     }
 }
 
@@ -56,6 +64,7 @@ pub enum HitKind {
     Cluster,
     Namespace,
     Database,
+    Config,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -117,10 +126,22 @@ pub fn load() -> ForbidConfig {
     if !path.exists() {
         return ForbidConfig::default();
     }
-    std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(_) => {
+            return ForbidConfig {
+                invalid: true,
+                ..ForbidConfig::default()
+            };
+        }
+    };
+    match serde_json::from_str(&text) {
+        Ok(cfg) => cfg,
+        Err(_) => ForbidConfig {
+            invalid: true,
+            ..ForbidConfig::default()
+        },
+    }
 }
 
 pub fn save(cfg: &ForbidConfig) -> Result<PathBuf> {
@@ -224,13 +245,7 @@ impl KubeEnv for KubectlEnv {
 
     fn current_namespace(&self) -> Option<String> {
         let out = Command::new("kubectl")
-            .args([
-                "config",
-                "view",
-                "--minify",
-                "-o",
-                "jsonpath={..namespace}",
-            ])
+            .args(["config", "view", "--minify", "-o", "jsonpath={..namespace}"])
             .output()
             .ok()?;
         if !out.status.success() {
@@ -239,7 +254,11 @@ impl KubeEnv for KubectlEnv {
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
         // Empty string means the context has no namespace pinned: the
         // implicit namespace is "default".
-        Some(if s.is_empty() { "default".to_string() } else { s })
+        Some(if s.is_empty() {
+            "default".to_string()
+        } else {
+            s
+        })
     }
 }
 
@@ -253,8 +272,7 @@ pub fn check(command: &str) -> Option<Hit> {
     if cfg.is_empty() {
         return None;
     }
-    check_with(command, &aliases::ALIASES, &cfg, &KubectlEnv)
-        .or_else(|| check_db(command, &cfg))
+    check_with(command, &aliases::ALIASES, &cfg, &KubectlEnv).or_else(|| check_db(command, &cfg))
 }
 
 /// Inner check that's pure (no globals, no I/O) when `env` is a mock —
@@ -269,58 +287,61 @@ pub fn check_with(
         return None;
     }
 
-    let tool = match identify_tool(command, aliases) {
-        Some(t) => t,
-        None => return None,
-    };
+    let tokens = shell::tokenize(command);
+    let (tool, tool_index) = identify_tool_from_tokens(&tokens, aliases)?;
 
-    let explicit_context = extract_flag(command, tool.context_flags);
-    let explicit_namespace = extract_flag(command, tool.namespace_flags);
+    if cfg.invalid {
+        return Some(invalid_config_hit());
+    }
+
+    let tool_args = &tokens[tool_index + 1..];
+    let explicit_context = extract_flag_from_tokens(tool_args, tool.context_flags);
+    let explicit_namespace = extract_flag_from_tokens(tool_args, tool.namespace_flags);
 
     // Explicit-flag matches first.
-    if let Some(ctx) = &explicit_context {
-        if cfg.clusters.iter().any(|c| c == ctx) {
-            return Some(Hit {
-                kind: HitKind::Cluster,
-                value: ctx.clone(),
-                from_current_context: false,
-            });
-        }
+    if let Some(ctx) = &explicit_context
+        && cfg.clusters.iter().any(|c| c == ctx)
+    {
+        return Some(Hit {
+            kind: HitKind::Cluster,
+            value: ctx.clone(),
+            from_current_context: false,
+        });
     }
-    if let Some(ns) = &explicit_namespace {
-        if cfg.namespaces.iter().any(|n| n == ns) {
-            return Some(Hit {
-                kind: HitKind::Namespace,
-                value: ns.clone(),
-                from_current_context: false,
-            });
-        }
+    if let Some(ns) = &explicit_namespace
+        && cfg.namespaces.iter().any(|n| n == ns)
+    {
+        return Some(Hit {
+            kind: HitKind::Namespace,
+            value: ns.clone(),
+            from_current_context: false,
+        });
     }
 
     // Fall back to current kubeconfig values for whatever the user did NOT
     // pin explicitly. Skip the subprocess entirely if the corresponding
     // list is empty.
-    if explicit_context.is_none() && !cfg.clusters.is_empty() {
-        if let Some(current) = env.current_context() {
-            if cfg.clusters.iter().any(|c| c == &current) {
-                return Some(Hit {
-                    kind: HitKind::Cluster,
-                    value: current,
-                    from_current_context: true,
-                });
-            }
-        }
+    if explicit_context.is_none()
+        && !cfg.clusters.is_empty()
+        && let Some(current) = env.current_context()
+        && cfg.clusters.iter().any(|c| c == &current)
+    {
+        return Some(Hit {
+            kind: HitKind::Cluster,
+            value: current,
+            from_current_context: true,
+        });
     }
-    if explicit_namespace.is_none() && !cfg.namespaces.is_empty() {
-        if let Some(current) = env.current_namespace() {
-            if cfg.namespaces.iter().any(|n| n == &current) {
-                return Some(Hit {
-                    kind: HitKind::Namespace,
-                    value: current,
-                    from_current_context: true,
-                });
-            }
-        }
+    if explicit_namespace.is_none()
+        && !cfg.namespaces.is_empty()
+        && let Some(current) = env.current_namespace()
+        && cfg.namespaces.iter().any(|n| n == &current)
+    {
+        return Some(Hit {
+            kind: HitKind::Namespace,
+            value: current,
+            from_current_context: true,
+        });
     }
 
     None
@@ -332,33 +353,34 @@ pub fn check_with(
 // returns None for it. Listed for future-proofing.
 const SQL_CLIENTS: &[&str] = &["mysql", "mariadb", "psql", "sqlite3", "sqlcmd", "mssql-cli"];
 
-fn extract_db_host(command: &str) -> Option<String> {
+fn extract_db_host(args: &[String]) -> Option<String> {
     static URL_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"(?:postgresql|postgres|mysql|mariadb|sqlserver|mssql)://(?:[^@/\s]+@)?([^/:?\s]+)",
         )
         .expect("valid regex")
     });
-    if let Some(caps) = URL_RE.captures(command) {
-        if let Some(host) = caps.get(1).map(|m| m.as_str().to_string()) {
-            if !host.is_empty() {
-                return Some(host);
-            }
-        }
+    let arg_text = args.join(" ");
+    if let Some(caps) = URL_RE.captures(&arg_text)
+        && let Some(host) = caps.get(1).map(|m| m.as_str().to_string())
+        && !host.is_empty()
+    {
+        return Some(host);
     }
-    extract_flag(command, &["-h", "--host"])
+    extract_flag_from_tokens(args, &["-h", "--host"])
 }
 
 /// Checks whether a SQL client command targets a forbidden database hostname.
 pub fn check_db(command: &str, cfg: &ForbidConfig) -> Option<Hit> {
-    if cfg.databases.is_empty() {
+    if cfg.databases.is_empty() && !cfg.invalid {
         return None;
     }
     let tokens = shell::tokenize(command);
-    let Some((_, _basename)) = find_command_token(&tokens, SQL_CLIENTS) else {
-        return None;
-    };
-    let host = extract_db_host(command)?;
+    let (client_index, _basename) = find_command_token(&tokens, SQL_CLIENTS)?;
+    if cfg.invalid {
+        return Some(invalid_config_hit());
+    }
+    let host = extract_db_host(&tokens[client_index + 1..])?;
     if cfg.databases.iter().any(|d| d.eq_ignore_ascii_case(&host)) {
         Some(Hit {
             kind: HitKind::Database,
@@ -372,43 +394,76 @@ pub fn check_db(command: &str, cfg: &ForbidConfig) -> Option<Hit> {
 
 // ---- helpers ------------------------------------------------------------
 
-fn identify_tool<'a>(command: &str, aliases: &AliasMap) -> Option<&'a ToolSpec> {
+#[cfg(test)]
+fn identify_tool(command: &str, aliases: &AliasMap) -> Option<(&'static ToolSpec, usize)> {
     let tokens = shell::tokenize(command);
+    identify_tool_from_tokens(&tokens, aliases)
+}
 
+fn identify_tool_from_tokens(
+    tokens: &[String],
+    aliases: &AliasMap,
+) -> Option<(&'static ToolSpec, usize)> {
     for tool in TOOLS {
         let names = aliases::aliases_for(aliases, tool.bin_key);
         let candidate_names: Vec<&str> = names.iter().map(String::as_str).collect();
-        if find_command_token(&tokens, &candidate_names).is_some() {
-            return Some(tool);
+        if let Some((index, _)) = find_command_token(tokens, &candidate_names) {
+            return Some((tool, index));
         }
     }
     None
 }
 
+fn invalid_config_hit() -> Hit {
+    Hit {
+        kind: HitKind::Config,
+        value: INVALID_CONFIG_MESSAGE.to_string(),
+        from_current_context: false,
+    }
+}
+
 /// Extracts the value of a flag from a command string. Recognises both the
 /// `--flag=value` and `--flag value` (space-separated) forms. Returns the
 /// first match wins.
+#[cfg(test)]
 fn extract_flag(command: &str, flags: &[&str]) -> Option<String> {
     let tokens = shell::tokenize(command);
+    extract_flag_from_tokens(&tokens, flags)
+}
+
+fn extract_flag_from_tokens(tokens: &[String], flags: &[&str]) -> Option<String> {
     let mut i = 0;
     while i < tokens.len() {
         let tok = tokens[i].as_str();
         for flag in flags {
             let with_eq = format!("{flag}=");
-            if let Some(rest) = tok.strip_prefix(&with_eq) {
-                if !rest.is_empty() {
-                    return Some(rest.to_string());
+            if let Some(rest) = tok.strip_prefix(&with_eq)
+                && !rest.is_empty()
+            {
+                return Some(rest.to_string());
+            }
+            if is_short_flag(flag)
+                && let Some(rest) = tok.strip_prefix(flag)
+                && !rest.is_empty()
+            {
+                let value = rest.strip_prefix('=').unwrap_or(rest);
+                if !value.is_empty() {
+                    return Some(value.to_string());
                 }
             }
-            if tok == *flag {
-                if let Some(next) = tokens.get(i + 1) {
-                    return Some(next.clone());
-                }
+            if tok == *flag
+                && let Some(next) = tokens.get(i + 1)
+            {
+                return Some(next.clone());
             }
         }
         i += 1;
     }
     None
+}
+
+fn is_short_flag(flag: &str) -> bool {
+    flag.starts_with('-') && !flag.starts_with("--") && flag.len() == 2
 }
 
 fn find_command_token<'a>(tokens: &'a [String], candidates: &[&str]) -> Option<(usize, &'a str)> {
@@ -464,6 +519,10 @@ fn skip_wrapper(tokens: &[String], index: usize) -> usize {
         if token == "--" {
             return i + 1;
         }
+        if wrapper_option_consumes_next(name, token) {
+            i += 2;
+            continue;
+        }
         if token.starts_with('-') {
             i += 1;
             continue;
@@ -471,6 +530,34 @@ fn skip_wrapper(tokens: &[String], index: usize) -> usize {
         break;
     }
     i
+}
+
+fn wrapper_option_consumes_next(wrapper: &str, token: &str) -> bool {
+    match wrapper {
+        "sudo" => matches!(
+            token,
+            "-u" | "--user"
+                | "-g"
+                | "--group"
+                | "-h"
+                | "--host"
+                | "-p"
+                | "--prompt"
+                | "-C"
+                | "--close-from"
+                | "-T"
+                | "--command-timeout"
+        ),
+        "nice" => token == "-n" || token == "--adjustment",
+        "time" => token == "-f" || token == "--format" || token == "-o" || token == "--output",
+        "stdbuf" => {
+            matches!(
+                token,
+                "-i" | "--input" | "-o" | "--output" | "-e" | "--error"
+            )
+        }
+        _ => false,
+    }
 }
 
 // ---- tests --------------------------------------------------------------
@@ -512,6 +599,7 @@ mod tests {
             clusters: names.iter().map(|s| s.to_string()).collect(),
             namespaces: vec![],
             databases: vec![],
+            invalid: false,
         }
     }
     fn cfg_namespaces(names: &[&str]) -> ForbidConfig {
@@ -519,6 +607,7 @@ mod tests {
             clusters: vec![],
             namespaces: names.iter().map(|s| s.to_string()).collect(),
             databases: vec![],
+            invalid: false,
         }
     }
 
@@ -527,6 +616,7 @@ mod tests {
             clusters: vec![],
             namespaces: vec![],
             databases: hosts.iter().map(|s| s.to_string()).collect(),
+            invalid: false,
         }
     }
 
@@ -542,11 +632,13 @@ mod tests {
     #[test]
     fn check_db_blocks_url_with_userinfo() {
         let cfg = cfg_databases(&["prod-db.example.com"]);
-        assert!(check_db(
-            "psql postgresql://user:secret@prod-db.example.com/mydb",
-            &cfg
-        )
-        .is_some());
+        assert!(
+            check_db(
+                "psql postgresql://user:secret@prod-db.example.com/mydb",
+                &cfg
+            )
+            .is_some()
+        );
     }
 
     #[test]
@@ -563,6 +655,12 @@ mod tests {
     }
 
     #[test]
+    fn security_regression_check_db_blocks_attached_short_host_flag() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+        assert!(check_db("psql -hprod-db.example.com mydb", &cfg).is_some());
+    }
+
+    #[test]
     fn check_db_blocks_host_flag_with_quotes() {
         let cfg = cfg_databases(&["prod-db.example.com"]);
         assert!(check_db("psql -h 'prod-db.example.com' mydb", &cfg).is_some());
@@ -571,7 +669,33 @@ mod tests {
     #[test]
     fn check_db_blocks_wrapped_sql_client() {
         let cfg = cfg_databases(&["prod-db.example.com"]);
-        assert!(check_db("env PGPASSWORD=secret psql -h prod-db.example.com mydb", &cfg).is_some());
+        assert!(
+            check_db(
+                "env PGPASSWORD=secret psql -h prod-db.example.com mydb",
+                &cfg
+            )
+            .is_some()
+        );
+    }
+
+    #[test]
+    fn security_regression_check_db_ignores_wrapper_host_flag() {
+        let cfg = cfg_databases(&["prod-db.example.com"]);
+
+        assert!(
+            check_db(
+                "sudo -h wrapper-host psql -h prod-db.example.com mydb",
+                &cfg
+            )
+            .is_some()
+        );
+        assert!(
+            check_db(
+                "sudo -h prod-db.example.com psql -h staging-db.example.com mydb",
+                &cfg
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -626,6 +750,15 @@ mod tests {
     #[test]
     fn extract_flag_handles_short_namespace_form() {
         let cmd = "kubectl get pods -n kube-system";
+        assert_eq!(
+            extract_flag(cmd, &["--namespace", "-n"]),
+            Some("kube-system".to_string())
+        );
+    }
+
+    #[test]
+    fn security_regression_extract_flag_handles_attached_short_namespace_form() {
+        let cmd = "kubectl get pods -nkube-system";
         assert_eq!(
             extract_flag(cmd, &["--namespace", "-n"]),
             Some("kube-system".to_string())
@@ -726,15 +859,60 @@ mod tests {
     }
 
     #[test]
-    fn allows_when_explicit_context_not_forbidden() {
+    fn security_regression_wrapper_short_n_is_not_kubectl_namespace() {
+        let cfg = cfg_namespaces(&["kubectl"]);
+
+        assert!(
+            check_with(
+                "sudo -n kubectl get pods",
+                &empty_aliases(),
+                &cfg,
+                &no_kube()
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn security_regression_blocks_when_wrapped_kubectl_context_uses_sudo_option_argument() {
         let cfg = cfg_clusters(&["prod-eu"]);
-        assert!(check_with(
-            "kubectl --context=staging get pods",
+        let hit = check_with(
+            "sudo -u root kubectl --context=prod-eu get pods",
             &empty_aliases(),
             &cfg,
-            &no_kube()
+            &no_kube(),
         )
-        .is_none());
+        .expect("should block");
+        assert_eq!(hit.kind, HitKind::Cluster);
+        assert_eq!(hit.value, "prod-eu");
+    }
+
+    #[test]
+    fn security_regression_blocks_attached_short_namespace_forbidden_flag() {
+        let cfg = cfg_namespaces(&["kube-system"]);
+        let hit = check_with(
+            "kubectl get pods -nkube-system",
+            &empty_aliases(),
+            &cfg,
+            &no_kube(),
+        )
+        .expect("should block");
+        assert_eq!(hit.kind, HitKind::Namespace);
+        assert_eq!(hit.value, "kube-system");
+    }
+
+    #[test]
+    fn allows_when_explicit_context_not_forbidden() {
+        let cfg = cfg_clusters(&["prod-eu"]);
+        assert!(
+            check_with(
+                "kubectl --context=staging get pods",
+                &empty_aliases(),
+                &cfg,
+                &no_kube()
+            )
+            .is_none()
+        );
     }
 
     // ---- implicit-context blocking via kube env ----
@@ -761,13 +939,15 @@ mod tests {
             ctx: Some("prod-eu".into()),
             ns: None,
         };
-        assert!(check_with(
-            "kubectl --context=staging get pods",
-            &empty_aliases(),
-            &cfg,
-            &env
-        )
-        .is_none());
+        assert!(
+            check_with(
+                "kubectl --context=staging get pods",
+                &empty_aliases(),
+                &cfg,
+                &env
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -777,8 +957,8 @@ mod tests {
             ctx: None,
             ns: Some("kube-system".into()),
         };
-        let hit = check_with("kubectl get pods", &empty_aliases(), &cfg, &env)
-            .expect("should block");
+        let hit =
+            check_with("kubectl get pods", &empty_aliases(), &cfg, &env).expect("should block");
         assert_eq!(hit.kind, HitKind::Namespace);
         assert!(hit.from_current_context);
     }
@@ -790,13 +970,15 @@ mod tests {
             ctx: Some("prod-eu".into()),
             ns: Some("kube-system".into()),
         };
-        assert!(check_with(
-            "kubectl --context=prod-eu -n kube-system get pods",
-            &empty_aliases(),
-            &cfg,
-            &env
-        )
-        .is_none());
+        assert!(
+            check_with(
+                "kubectl --context=prod-eu -n kube-system get pods",
+                &empty_aliases(),
+                &cfg,
+                &env
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -828,6 +1010,7 @@ mod tests {
             clusters: vec![],
             namespaces: vec![],
             databases: vec!["prod-db.example.com".to_string()],
+            invalid: false,
         };
         assert!(!cfg.is_empty());
     }

@@ -25,7 +25,7 @@
 | `k8s-drain` | `kubectl drain <node>` | Evicts all pods — potential cluster-wide service disruption |
 | `k8s-subprocess-list` | `['kubectl', …, 'delete']` in script/file content | Bypasses command-level checks via subprocess argument lists |
 | Forbidden cluster | `--context=<forbidden>` or current context | Blocks any command targeting a cluster added via `rsh forbid cluster` |
-| Forbidden namespace | `--namespace=<forbidden>` / `-n <forbidden>` or current namespace | Blocks any command targeting a namespace added via `rsh forbid namespace` |
+| Forbidden namespace | `--namespace=<forbidden>` / `-n <forbidden>` / `-n<forbidden>` or current namespace | Blocks any command targeting a namespace added via `rsh forbid namespace` |
 
 ## helm
 
@@ -34,7 +34,7 @@
 | `helm-uninstall` | `helm uninstall\|delete <release>` | Removes the release and all its resources — possible cascading data loss |
 | `helm-subprocess-list` | `['helm', …, 'uninstall'\|'delete']` in script/file content | Bypasses command-level checks via subprocess argument lists |
 | Forbidden cluster | `--kube-context=<forbidden>` or current context | Blocks commands targeting a forbidden cluster |
-| Forbidden namespace | `--namespace=<forbidden>` / `-n <forbidden>` or current namespace | Blocks commands targeting a forbidden namespace |
+| Forbidden namespace | `--namespace=<forbidden>` / `-n <forbidden>` / `-n<forbidden>` or current namespace | Blocks commands targeting a forbidden namespace |
 
 ## docker / docker-compose
 
@@ -67,7 +67,7 @@ These rules match SQL keywords regardless of which client (`psql`, `mysql`, `sql
 | `sql-drop` | `DROP TABLE\|DATABASE\|SCHEMA\|INDEX\|VIEW\|…` | Permanently removes a database object and its data |
 | `sql-alter-table` | `ALTER TABLE` | Schema modifications — column drops are irreversible |
 | `sql-create-ddl` | `CREATE TABLE\|DATABASE\|SCHEMA` | Creates persistent schema objects |
-| Forbidden database | `-h <host>` / `--host=<host>` / connection URL | Blocks any SQL client command targeting a host added via `rsh forbid database` |
+| Forbidden database | `-h <host>` / `-h<host>` / `--host=<host>` / connection URL | Blocks any SQL client command targeting a host added via `rsh forbid database` |
 
 ## rsh (self-protection)
 

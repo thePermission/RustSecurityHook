@@ -10,8 +10,9 @@ Blacklist rules are bound to specific binary names (e.g. `kubectl`). On many sys
 Three sources of "alias" information exist on a typical system:
 
 1. **Shell aliases** (`alias k=kubectl` in `.bashrc`) — only active in interactive shells; not available in the non-interactive subprocess that Claude Code uses to run hooks.
-2. **Symlinks and hardlinks in `$PATH`** — detectable by comparing `canonicalize()` paths.
-3. **Wrapper scripts** — arbitrary executables that call the real binary inside; not detectable without executing them.
+2. **Symlinks in `$PATH`** — detectable by comparing `canonicalize()` paths.
+3. **Hardlinks in `$PATH`** — not reliably detectable by `canonicalize()` because each hardlink has its own path even when it points at the same inode.
+4. **Wrapper scripts** — arbitrary executables that call the real binary inside; not detectable without executing them.
 
 ## Decision
 
@@ -27,7 +28,7 @@ Format: `BTreeMap<String, Vec<String>>` — canonical command → list of known 
 Two mechanisms populate the map:
 
 1. **Manual:** `rsh alias <command> <alias>` — idempotent, persists immediately.
-2. **Auto-detection:** `rsh detect-aliases [cmd]` — scans `$PATH` for files whose `canonicalize()` path matches the target binary. Catches symlinks and hardlinks; explicitly does **not** detect wrapper scripts (see below).
+2. **Auto-detection:** `rsh detect-aliases [cmd]` — scans `$PATH` for files whose `canonicalize()` path matches the target binary. Catches normal symlinks; explicitly does **not** reliably detect hardlinks or wrapper scripts (see below).
 
 `rsh init` calls `detect-aliases` automatically for all rule-bound binaries after installing the hook.
 
@@ -44,6 +45,6 @@ When assembling a rule regex for binary `b`, `aliases_for(map, b)` returns `[b, 
 
 ## Consequences
 
-- Wrapper scripts that call `kubectl` internally are not covered. Users who rely on such wrappers must either register the wrapper name manually (`rsh alias kubectl mywrapper`) or accept that wrapper-invoked commands bypass the blacklist.
+- Wrapper scripts and hardlink names that call or point at `kubectl` internally are not auto-detected. Users who rely on such names must either register them manually (`rsh alias kubectl mywrapper`) or accept that those invocations bypass binary-bound checks.
 - The alias map is process-wide and immutable after first access. Adding an alias while a Claude Code session is running takes effect on the next session (next hook process invocation).
 - `BTreeMap` (sorted) is used instead of `HashMap` for deterministic serialization order in the JSON file, making diffs readable.

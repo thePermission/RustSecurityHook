@@ -1,6 +1,6 @@
-use crate::{aliases, blacklist, forbid};
-use crate::shell;
 use crate::secrets;
+use crate::shell;
+use crate::{aliases, blacklist, forbid};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -29,7 +29,7 @@ pub enum Segment {
 
 pub fn split_segments(command: &str) -> Vec<Segment> {
     command
-        .split(|c| c == ';' || c == '\n')
+        .split([';', '\n'])
         .flat_map(|s| s.split("&&"))
         .flat_map(|s| s.split("||"))
         .flat_map(|s| s.split('|'))
@@ -39,15 +39,17 @@ pub fn split_segments(command: &str) -> Vec<Segment> {
             if let Some(path) = extract_script_path(fragment) {
                 Segment::Script { path }
             } else {
-                Segment::Direct { command: fragment.to_string() }
+                Segment::Direct {
+                    command: fragment.to_string(),
+                }
             }
         })
         .collect()
 }
 
 const INTERPRETERS: &[&str] = &[
-    "bash", "sh", "zsh", "ksh", "dash", "fish",
-    "python", "python3", "perl", "ruby", "node", "nodejs",
+    "bash", "sh", "zsh", "ksh", "dash", "fish", "python", "python3", "perl", "ruby", "node",
+    "nodejs",
 ];
 
 fn extract_script_path(cmd: &str) -> Option<String> {
@@ -56,11 +58,19 @@ fn extract_script_path(cmd: &str) -> Option<String> {
     let basename = shell::normalize_command_name(first);
 
     if INTERPRETERS.contains(&basename) {
-        return tokens
-            .iter()
-            .skip(1)
-            .find(|t| !t.starts_with('-'))
-            .cloned();
+        for token in tokens.iter().skip(1) {
+            if is_inline_interpreter_flag(basename, token) {
+                return None;
+            }
+            if token == "--" {
+                continue;
+            }
+            if token.starts_with('-') {
+                continue;
+            }
+            return Some(token.clone());
+        }
+        return None;
     }
 
     if first == "source" || first == "." {
@@ -76,6 +86,52 @@ fn extract_script_path(cmd: &str) -> Option<String> {
     }
 
     None
+}
+
+fn is_inline_interpreter_flag(interpreter: &str, token: &str) -> bool {
+    match interpreter {
+        "bash" | "sh" | "zsh" | "ksh" | "dash" | "fish" => {
+            token == "-c"
+                || (token.starts_with('-') && !token.starts_with("--") && token.contains('c'))
+        }
+        "python" | "python3" => token == "-c",
+        "perl" | "ruby" => token == "-e" || token.starts_with("-e"),
+        "node" | "nodejs" => {
+            token == "-e"
+                || token.starts_with("-e")
+                || token == "--eval"
+                || token.starts_with("--eval=")
+        }
+        _ => false,
+    }
+}
+
+fn read_script(path: &str) -> Option<String> {
+    let expanded = expand_script_path(path);
+    if let Ok(content) = std::fs::read_to_string(&expanded) {
+        return Some(content);
+    }
+    let literal = std::path::Path::new(path);
+    if expanded != literal {
+        return std::fs::read_to_string(literal).ok();
+    }
+    None
+}
+
+fn expand_script_path(path: &str) -> std::path::PathBuf {
+    let Some(home) = aliases::home_dir() else {
+        return std::path::PathBuf::from(path);
+    };
+
+    match path {
+        "~" => home,
+        _ if path.starts_with("~/") => home.join(&path[2..]),
+        "$HOME" => home,
+        _ if path.starts_with("$HOME/") => home.join(&path[6..]),
+        "${HOME}" => home,
+        _ if path.starts_with("${HOME}/") => home.join(&path[8..]),
+        _ => std::path::PathBuf::from(path),
+    }
 }
 
 pub struct KubectlChecker;
@@ -101,11 +157,13 @@ impl ToolChecker for KubectlChecker {
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            if let Some(h) =
-                forbid::check_with(line, &aliases::ALIASES, &cfg, &forbid::KubectlEnv)
+            if let Some(h) = forbid::check_with(line, &aliases::ALIASES, &cfg, &forbid::KubectlEnv)
             {
-                let origin =
-                    if h.from_current_context { " (current kubeconfig)" } else { "" };
+                let origin = if h.from_current_context {
+                    " (current kubeconfig)"
+                } else {
+                    ""
+                };
                 let (rule_id, message) = match &h.kind {
                     forbid::HitKind::Cluster => (
                         "forbid-cluster".to_string(),
@@ -115,6 +173,7 @@ impl ToolChecker for KubectlChecker {
                         "forbid-namespace".to_string(),
                         format!("forbidden namespace '{}'{origin}", h.value),
                     ),
+                    forbid::HitKind::Config => ("forbid-config".to_string(), h.value.clone()),
                     _ => return None,
                 };
                 return Some(Hit { rule_id, message });
@@ -147,11 +206,13 @@ impl ToolChecker for HelmChecker {
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            if let Some(h) =
-                forbid::check_with(line, &aliases::ALIASES, &cfg, &forbid::KubectlEnv)
+            if let Some(h) = forbid::check_with(line, &aliases::ALIASES, &cfg, &forbid::KubectlEnv)
             {
-                let origin =
-                    if h.from_current_context { " (current kubeconfig)" } else { "" };
+                let origin = if h.from_current_context {
+                    " (current kubeconfig)"
+                } else {
+                    ""
+                };
                 let (rule_id, message) = match &h.kind {
                     forbid::HitKind::Cluster => (
                         "forbid-cluster".to_string(),
@@ -161,6 +222,7 @@ impl ToolChecker for HelmChecker {
                         "forbid-namespace".to_string(),
                         format!("forbidden namespace '{}'{origin}", h.value),
                     ),
+                    forbid::HitKind::Config => ("forbid-config".to_string(), h.value.clone()),
                     _ => return None,
                 };
                 return Some(Hit { rule_id, message });
@@ -233,10 +295,16 @@ impl ToolChecker for FallbackChecker {
                 continue;
             }
             if let Some(h) = forbid::check_db(line, &cfg) {
-                return Some(Hit {
-                    rule_id: "forbid-database".to_string(),
-                    message: format!("forbidden database host '{}'", h.value),
-                });
+                return match h.kind {
+                    forbid::HitKind::Config => Some(Hit {
+                        rule_id: "forbid-config".to_string(),
+                        message: h.value,
+                    }),
+                    _ => Some(Hit {
+                        rule_id: "forbid-database".to_string(),
+                        message: format!("forbidden database host '{}'", h.value),
+                    }),
+                };
             }
         }
         None
@@ -262,7 +330,11 @@ impl ToolChecker for SecretFileChecker {
                 // shell env-assignment like `FOO=/home/user/.env cmd`.
                 // Inspect the value side when KEY=/path pattern is present.
                 if let Some((key, val)) = token.split_once('=') {
-                    if !key.contains('/') { val } else { continue; }
+                    if !key.contains('/') {
+                        val
+                    } else {
+                        continue;
+                    }
                 } else {
                     continue;
                 }
@@ -279,10 +351,7 @@ impl ToolChecker for SecretFileChecker {
             if let Some(h) = secrets::check_path(candidate) {
                 return Some(Hit {
                     rule_id: h.id.to_string(),
-                    message: format!(
-                        "bash access to secret file (rule: {}): {}",
-                        h.id, h.reason
-                    ),
+                    message: format!("bash access to secret file (rule: {}): {}", h.id, h.reason),
                 });
             }
         }
@@ -291,6 +360,12 @@ impl ToolChecker for SecretFileChecker {
 }
 
 pub fn detect_checkers(content: &str) -> Vec<Box<dyn ToolChecker>> {
+    let normalized = shell::tokenize(content).join(" ");
+    let normalized = if normalized == content {
+        None
+    } else {
+        Some(normalized)
+    };
     let candidates: Vec<Box<dyn ToolChecker>> = vec![
         Box::new(FallbackChecker),
         Box::new(SecretFileChecker),
@@ -303,7 +378,11 @@ pub fn detect_checkers(content: &str) -> Vec<Box<dyn ToolChecker>> {
         .into_iter()
         .filter(|c| {
             let bins = c.bins();
-            bins.is_empty() || bins.iter().any(|b| content.contains(b.as_str()))
+            bins.is_empty()
+                || bins.iter().any(|b| content.contains(b.as_str()))
+                || normalized
+                    .as_ref()
+                    .is_some_and(|cmd| bins.iter().any(|b| cmd.contains(b.as_str())))
         })
         .collect()
 }
@@ -318,9 +397,9 @@ pub fn run_parallel_checks(segments: Vec<Segment>) -> Option<Hit> {
     for segment in segments {
         let content: String = match segment {
             Segment::Direct { command } => command,
-            Segment::Script { path } => match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(_) => continue,
+            Segment::Script { path } => match read_script(&path) {
+                Some(c) => c,
+                None => continue,
             },
         };
         let checkers = detect_checkers(&content);
@@ -347,6 +426,47 @@ pub fn run_parallel_checks(segments: Vec<Segment>) -> Option<Hit> {
 mod tests {
     use super::*;
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct HomeEnv {
+        _dir: tempfile::TempDir,
+        prev: Option<std::ffi::OsString>,
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl HomeEnv {
+        fn new() -> Self {
+            let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let dir = tempfile::tempdir().unwrap();
+            let prev = std::env::var_os("HOME");
+            unsafe {
+                std::env::set_var("HOME", dir.path());
+            }
+            HomeEnv {
+                _dir: dir,
+                prev,
+                _guard: guard,
+            }
+        }
+
+        fn path(&self) -> &std::path::Path {
+            self._dir.path()
+        }
+    }
+
+    impl Drop for HomeEnv {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(v) => unsafe {
+                    std::env::set_var("HOME", v);
+                },
+                None => unsafe {
+                    std::env::remove_var("HOME");
+                },
+            }
+        }
+    }
+
     #[test]
     fn kubectl_checker_blocks_delete_namespace() {
         let hit = KubectlChecker.check("kubectl delete ns production");
@@ -365,15 +485,22 @@ mod tests {
     }
 
     fn direct(cmd: &str) -> Segment {
-        Segment::Direct { command: cmd.to_string() }
+        Segment::Direct {
+            command: cmd.to_string(),
+        }
     }
     fn script(path: &str) -> Segment {
-        Segment::Script { path: path.to_string() }
+        Segment::Script {
+            path: path.to_string(),
+        }
     }
 
     #[test]
     fn split_direct_only() {
-        assert_eq!(split_segments("kubectl get pods"), vec![direct("kubectl get pods")]);
+        assert_eq!(
+            split_segments("kubectl get pods"),
+            vec![direct("kubectl get pods")]
+        );
     }
 
     #[test]
@@ -416,11 +543,7 @@ mod tests {
     fn split_newline_separator() {
         assert_eq!(
             split_segments("git status\n./run.sh\necho bye"),
-            vec![
-                direct("git status"),
-                script("./run.sh"),
-                direct("echo bye"),
-            ]
+            vec![direct("git status"), script("./run.sh"), direct("echo bye"),]
         );
     }
 
@@ -436,10 +559,7 @@ mod tests {
             split_segments("source /etc/profile"),
             vec![script("/etc/profile")]
         );
-        assert_eq!(
-            split_segments(". ~/.bashrc"),
-            vec![script("~/.bashrc")]
-        );
+        assert_eq!(split_segments(". ~/.bashrc"), vec![script("~/.bashrc")]);
     }
 
     #[test]
@@ -462,11 +582,71 @@ mod tests {
     fn split_pipe_separator() {
         assert_eq!(
             split_segments("cat file.txt | bash /tmp/process.sh"),
-            vec![
-                direct("cat file.txt"),
-                script("/tmp/process.sh"),
-            ]
+            vec![direct("cat file.txt"), script("/tmp/process.sh"),]
         );
+    }
+
+    #[test]
+    fn security_regression_inline_bash_c_payload_is_scanned() {
+        let hit = run_parallel_checks(split_segments("bash -c 'kubectl delete ns prod'"));
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn security_regression_inline_sh_c_payload_is_scanned() {
+        let hit = run_parallel_checks(split_segments("sh -c 'docker compose down -v'"));
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn security_regression_inline_node_e_payload_is_scanned() {
+        let hit = run_parallel_checks(split_segments(
+            r#"node -e 'require("child_process").execSync("docker compose down -v")'"#,
+        ));
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn security_regression_inline_interpreter_secret_access_is_scanned() {
+        let hit = run_parallel_checks(split_segments("bash -c 'cat /home/user/.env'"));
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn security_regression_pipeline_blocks_shell_escaped_kubectl_binary() {
+        let hit = run_parallel_checks(split_segments(r"kube\ctl delete ns prod"));
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn security_regression_pipeline_blocks_shell_escaped_rsh_binary() {
+        let hit = run_parallel_checks(split_segments(r"r\sh off"));
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn security_regression_interpreter_script_args_do_not_disable_script_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("deploy.py");
+        std::fs::write(&script, "kubectl delete ns prod\n").unwrap();
+
+        let hit = run_parallel_checks(split_segments(&format!(
+            "python {} -c config",
+            script.display()
+        )));
+
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn security_regression_tilde_script_path_is_scanned() {
+        let env = HomeEnv::new();
+        let script = env.path().join("danger.sh");
+        std::fs::write(&script, "kubectl delete ns prod\n").unwrap();
+
+        let hit = run_parallel_checks(split_segments("bash ~/danger.sh"));
+
+        assert!(hit.is_some());
     }
 
     #[test]
@@ -479,7 +659,11 @@ mod tests {
     #[test]
     fn helm_checker_allows_safe_command() {
         assert!(HelmChecker.check("helm list").is_none());
-        assert!(HelmChecker.check("helm upgrade postgres bitnami/postgresql").is_none());
+        assert!(
+            HelmChecker
+                .check("helm upgrade postgres bitnami/postgresql")
+                .is_none()
+        );
     }
 
     #[test]
@@ -554,26 +738,46 @@ mod tests {
     #[test]
     fn detect_checkers_returns_kubectl_when_present() {
         let checkers = detect_checkers("kubectl delete ns prod");
-        assert!(checkers.iter().any(|c| c.bins().iter().any(|b| b == "kubectl")));
+        assert!(
+            checkers
+                .iter()
+                .any(|c| c.bins().iter().any(|b| b == "kubectl"))
+        );
     }
 
     #[test]
     fn detect_checkers_does_not_return_kubectl_for_helm_only() {
         let checkers = detect_checkers("helm list");
-        assert!(!checkers.iter().any(|c| c.bins().iter().any(|b| b == "kubectl")));
+        assert!(
+            !checkers
+                .iter()
+                .any(|c| c.bins().iter().any(|b| b == "kubectl"))
+        );
     }
 
     #[test]
     fn detect_checkers_returns_both_for_mixed_content() {
         let checkers = detect_checkers("kubectl get pods\nhelm list");
-        assert!(checkers.iter().any(|c| c.bins().iter().any(|b| b == "kubectl")));
-        assert!(checkers.iter().any(|c| c.bins().iter().any(|b| b == "helm")));
+        assert!(
+            checkers
+                .iter()
+                .any(|c| c.bins().iter().any(|b| b == "kubectl"))
+        );
+        assert!(
+            checkers
+                .iter()
+                .any(|c| c.bins().iter().any(|b| b == "helm"))
+        );
     }
 
     #[test]
     fn detect_checkers_returns_docker_when_present() {
         let checkers = detect_checkers("docker volume rm mydata");
-        assert!(checkers.iter().any(|c| c.bins().iter().any(|b| b == "docker")));
+        assert!(
+            checkers
+                .iter()
+                .any(|c| c.bins().iter().any(|b| b == "docker"))
+        );
     }
 
     #[test]

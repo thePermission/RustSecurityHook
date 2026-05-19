@@ -10,7 +10,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 #[derive(Parser)]
-#[command(name = "rsh", version, about = "Rust Security Hook — Claude/Codex PreToolUse hook")]
+#[command(
+    name = "rsh",
+    version,
+    about = "Rust Security Hook — Claude/Codex PreToolUse hook"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -185,7 +189,10 @@ fn main() -> ExitCode {
                 ToolArg::Codex => vec![HookTarget::Codex],
                 ToolArg::All => vec![HookTarget::Claude, HookTarget::Codex],
             });
-            match init_hooks(InitOptions { global, requested_targets }) {
+            match init_hooks(InitOptions {
+                global,
+                requested_targets,
+            }) {
                 Ok(results) => {
                     for r in &results {
                         eprintln!(
@@ -208,38 +215,35 @@ fn main() -> ExitCode {
             list_rules();
             ExitCode::SUCCESS
         }
-        Some(Commands::Alias { command, alias }) => {
-            match aliases::add(&command, &alias) {
-                Ok((path, true)) => {
-                    eprintln!("added alias {alias} → {command} in {}", path.display());
-                    ExitCode::SUCCESS
-                }
-                Ok((path, false)) => {
-                    eprintln!(
-                        "alias {alias} → {command} already present ({})",
-                        path.display()
-                    );
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("alias failed: {e:#}");
-                    ExitCode::FAILURE
-                }
+        Some(Commands::Alias { command, alias }) => match aliases::add(&command, &alias) {
+            Ok((path, true)) => {
+                eprintln!("added alias {alias} → {command} in {}", path.display());
+                ExitCode::SUCCESS
             }
-        }
+            Ok((path, false)) => {
+                eprintln!(
+                    "alias {alias} → {command} already present ({})",
+                    path.display()
+                );
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("alias failed: {e:#}");
+                ExitCode::FAILURE
+            }
+        },
         Some(Commands::DetectAliases { commands }) => {
-            let targets = if commands.is_empty() { rule_bins() } else { commands };
+            let targets = if commands.is_empty() {
+                rule_bins()
+            } else {
+                commands
+            };
             run_detect(&targets)
         }
         Some(Commands::Rule { action }) => run_rule(action),
         Some(Commands::Forbid { action }) => run_forbid(action),
         Some(Commands::Completions { shell }) => {
-            clap_complete::generate(
-                shell,
-                &mut Cli::command(),
-                "rsh",
-                &mut std::io::stdout(),
-            );
+            clap_complete::generate(shell, &mut Cli::command(), "rsh", &mut std::io::stdout());
             ExitCode::SUCCESS
         }
         Some(Commands::Off { global }) => run_off(global),
@@ -250,7 +254,9 @@ fn main() -> ExitCode {
 fn list_rules() {
     use std::collections::BTreeMap;
 
-    let globally = disabled::flag_path_global().map(|p| p.exists()).unwrap_or(false);
+    let globally = disabled::flag_path_global()
+        .map(|p| p.exists())
+        .unwrap_or(false);
     let locally = disabled::flag_path_local().exists();
     if globally {
         println!("WARNING: rsh is currently DISABLED (global) — run `rsh on -g` to re-enable\n");
@@ -328,6 +334,10 @@ fn list_rules() {
 
     print_section("FORBIDDEN CLUSTERS, NAMESPACES AND DATABASES");
     let fcfg = forbid::load();
+    if fcfg.invalid {
+        println!("  WARNING: {}", forbid::INVALID_CONFIG_MESSAGE);
+        println!();
+    }
     if fcfg.is_empty() {
         println!("  (none — register with `rsh forbid cluster <name>`,");
         println!("                       `rsh forbid namespace <name>`, or");
@@ -376,7 +386,11 @@ fn list_rules() {
         for (cmd, list) in &aliases {
             println!("    {cmd}");
             for (i, a) in list.iter().enumerate() {
-                let connector = if i + 1 == list.len() { "└─" } else { "├─" };
+                let connector = if i + 1 == list.len() {
+                    "└─"
+                } else {
+                    "├─"
+                };
                 println!("      {connector} {a}");
             }
             println!();
@@ -538,7 +552,7 @@ fn is_command_tool(tool_name: &str, tool_input: &serde_json::Value) -> bool {
         || tool_name.ends_with(".exec_command")
         || tool_name.ends_with("/exec_command")
         || tool_name.ends_with("::exec_command")
-        || (tool_name != "apply_patch" && extract_command(tool_input) != "")
+        || (tool_name != "apply_patch" && !extract_command(tool_input).is_empty())
 }
 
 fn extract_command(tool_input: &serde_json::Value) -> &str {
@@ -550,8 +564,7 @@ fn extract_command(tool_input: &serde_json::Value) -> &str {
 }
 
 fn is_valid_rule_id(id: &str) -> bool {
-    blacklist::rules().iter().any(|r| r.id == id)
-        || secrets::all_rules().iter().any(|r| r.id == id)
+    blacklist::rules().iter().any(|r| r.id == id) || secrets::all_rules().iter().any(|r| r.id == id)
 }
 
 fn run_rule(action: RuleAction) -> ExitCode {
@@ -678,56 +691,66 @@ fn run_forbid(action: ForbidAction) -> ExitCode {
                     ExitCode::FAILURE
                 }
             },
-            ForbidRemoveTarget::Database { hostname } => {
-                match forbid::remove_database(&hostname) {
-                    Ok(true) => {
-                        eprintln!("forbid: removed database '{hostname}'");
-                        ExitCode::SUCCESS
-                    }
-                    Ok(false) => {
-                        eprintln!("forbid: database '{hostname}' was not on the list");
-                        ExitCode::SUCCESS
-                    }
-                    Err(e) => {
-                        eprintln!("forbid failed: {e:#}");
-                        ExitCode::FAILURE
-                    }
+            ForbidRemoveTarget::Database { hostname } => match forbid::remove_database(&hostname) {
+                Ok(true) => {
+                    eprintln!("forbid: removed database '{hostname}'");
+                    ExitCode::SUCCESS
                 }
-            }
+                Ok(false) => {
+                    eprintln!("forbid: database '{hostname}' was not on the list");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("forbid failed: {e:#}");
+                    ExitCode::FAILURE
+                }
+            },
         },
         ForbidAction::List => {
             let cfg = forbid::load();
-            if cfg.is_empty() {
-                println!("(no forbidden clusters, namespaces, or databases configured)");
-            } else {
-                println!("Clusters:");
-                if cfg.clusters.is_empty() {
-                    println!("  (none)");
-                } else {
-                    for c in &cfg.clusters {
-                        println!("  • {c}");
-                    }
-                }
-                println!("Namespaces:");
-                if cfg.namespaces.is_empty() {
-                    println!("  (none)");
-                } else {
-                    for n in &cfg.namespaces {
-                        println!("  • {n}");
-                    }
-                }
-                println!("Databases:");
-                if cfg.databases.is_empty() {
-                    println!("  (none)");
-                } else {
-                    for d in &cfg.databases {
-                        println!("  • {d}");
-                    }
-                }
-            }
+            print!("{}", render_forbid_list(&cfg));
             ExitCode::SUCCESS
         }
     }
+}
+
+fn render_forbid_list(cfg: &forbid::ForbidConfig) -> String {
+    let mut out = String::new();
+    if cfg.invalid {
+        out.push_str("WARNING: ");
+        out.push_str(forbid::INVALID_CONFIG_MESSAGE);
+        out.push_str("\n\n");
+    }
+    if cfg.is_empty() {
+        out.push_str("(no forbidden clusters, namespaces, or databases configured)\n");
+        return out;
+    }
+
+    out.push_str("Clusters:\n");
+    if cfg.clusters.is_empty() {
+        out.push_str("  (none)\n");
+    } else {
+        for c in &cfg.clusters {
+            out.push_str(&format!("  • {c}\n"));
+        }
+    }
+    out.push_str("Namespaces:\n");
+    if cfg.namespaces.is_empty() {
+        out.push_str("  (none)\n");
+    } else {
+        for n in &cfg.namespaces {
+            out.push_str(&format!("  • {n}\n"));
+        }
+    }
+    out.push_str("Databases:\n");
+    if cfg.databases.is_empty() {
+        out.push_str("  (none)\n");
+    } else {
+        for d in &cfg.databases {
+            out.push_str(&format!("  • {d}\n"));
+        }
+    }
+    out
 }
 
 fn run_off(global: bool) -> ExitCode {
@@ -739,11 +762,11 @@ fn run_off(global: bool) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        if let Some(parent) = path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                eprintln!("rsh: failed to create directory: {e:#}");
-                return ExitCode::FAILURE;
-            }
+        if let Some(parent) = path.parent()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            eprintln!("rsh: failed to create directory: {e:#}");
+            return ExitCode::FAILURE;
         }
         if path.exists() {
             eprintln!("rsh: already disabled (global)");
@@ -806,13 +829,17 @@ fn hook_command() -> String {
     // Prefer the bare name "rsh" when the binary is reachable via $PATH
     // (e.g. the user installed it through `cargo install --path .`).
     // Otherwise fall back to the absolute path of the currently running binary.
-    if which("rsh").is_some() {
-        "rsh".to_string()
-    } else {
-        std::env::current_exe()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "rsh".to_string())
+    let current = std::env::current_exe().ok();
+    if let (Some(path_rsh), Some(current_exe)) = (which("rsh"), current.as_ref()) {
+        let path_rsh = std::fs::canonicalize(path_rsh).ok();
+        let current_exe = std::fs::canonicalize(current_exe).ok();
+        if path_rsh.is_some() && path_rsh == current_exe {
+            return "rsh".to_string();
+        }
     }
+    current
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "rsh".to_string())
 }
 
 fn which(name: &str) -> Option<PathBuf> {
@@ -860,10 +887,7 @@ fn init_hooks(options: InitOptions) -> Result<Vec<InstallResult>> {
 
 fn detect_targets(home: &Path, cwd: &Path) -> Vec<HookTarget> {
     let mut targets = Vec::new();
-    if which("claude").is_some()
-        || home.join(".claude").exists()
-        || cwd.join(".claude").exists()
-    {
+    if which("claude").is_some() || home.join(".claude").exists() || cwd.join(".claude").exists() {
         targets.push(HookTarget::Claude);
     }
     if which("codex").is_some() || home.join(".codex").exists() || cwd.join(".codex").exists() {
@@ -879,13 +903,14 @@ fn install_hook(target: HookTarget, global: bool, home: &Path, cwd: &Path) -> Re
         target.local_path(cwd)
     };
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).ok();
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
     }
 
     let mut value: serde_json::Value = if path.exists() {
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
-        serde_json::from_str(&text).unwrap_or_else(|_| json!({}))
+        serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?
     } else {
         json!({})
     };
@@ -897,8 +922,7 @@ fn install_hook(target: HookTarget, global: bool, home: &Path, cwd: &Path) -> Re
     }
 
     let pretty = serde_json::to_string_pretty(&value)?;
-    std::fs::write(&path, pretty)
-        .with_context(|| format!("writing {}", path.display()))?;
+    std::fs::write(&path, pretty).with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
 }
 
@@ -992,7 +1016,11 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let prev = std::env::var_os("XDG_CONFIG_HOME");
             unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
-            IsolatedEnv { _dir: dir, prev, _guard: guard }
+            IsolatedEnv {
+                _dir: dir,
+                prev,
+                _guard: guard,
+            }
         }
 
         fn dir_path(&self) -> &std::path::Path {
@@ -1052,6 +1080,57 @@ mod tests {
         let arr = value["hooks"]["PreToolUse"].as_array().unwrap();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["hooks"][0]["command"], "rsh");
+    }
+
+    #[test]
+    fn security_regression_install_hook_rejects_invalid_existing_json() {
+        let home = tempfile::tempdir().unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        let hook_path = cwd.path().join(".codex").join("hooks.json");
+        std::fs::create_dir_all(hook_path.parent().unwrap()).unwrap();
+        std::fs::write(&hook_path, "not json").unwrap();
+
+        let result = install_hook(HookTarget::Codex, false, home.path(), cwd.path());
+
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&hook_path).unwrap(), "not json");
+    }
+
+    #[test]
+    fn security_regression_hook_command_does_not_use_unrelated_rsh_on_path() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let fake_rsh = dir
+            .path()
+            .join(if cfg!(windows) { "rsh.exe" } else { "rsh" });
+        std::fs::write(&fake_rsh, "not the current rsh binary").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&fake_rsh).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&fake_rsh, perms).unwrap();
+        }
+
+        let prev_path = std::env::var_os("PATH");
+        unsafe {
+            std::env::set_var("PATH", dir.path());
+        }
+        let command = hook_command();
+        match prev_path {
+            Some(path) => unsafe {
+                std::env::set_var("PATH", path);
+            },
+            None => unsafe {
+                std::env::remove_var("PATH");
+            },
+        }
+
+        assert_ne!(command, "rsh");
+        assert!(
+            std::path::Path::new(&command).is_absolute(),
+            "expected an absolute current-exe fallback, got {command}"
+        );
     }
 
     #[test]
@@ -1122,6 +1201,85 @@ mod tests {
         let result = run_hook_from_str(input);
 
         assert_eq!(result, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn security_regression_run_hook_blocks_write_to_xdg_rsh_config_path() {
+        let env = IsolatedEnv::new();
+        let protected = env.dir_path().join("rsh").join("forbidden.json");
+        let input = json!({
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": protected,
+                "content": "{}"
+            }
+        })
+        .to_string();
+
+        assert_eq!(run_hook_from_str(&input), ExitCode::from(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn security_regression_run_hook_blocks_read_via_secret_symlink() {
+        let _env = IsolatedEnv::new();
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join(".env");
+        std::fs::write(&target, "SECRET=value").unwrap();
+        let link = dir.path().join("safe-name.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let input = json!({
+            "tool_name": "Read",
+            "tool_input": {
+                "file_path": link
+            }
+        })
+        .to_string();
+
+        assert_eq!(run_hook_from_str(&input), ExitCode::from(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn security_regression_run_hook_blocks_write_via_protected_symlink() {
+        let env = IsolatedEnv::new();
+        let protected = env.dir_path().join("rsh").join("forbidden.json");
+        std::fs::create_dir_all(protected.parent().unwrap()).unwrap();
+        std::fs::write(&protected, "{}").unwrap();
+        let link = env.dir_path().join("safe-name.json");
+        std::os::unix::fs::symlink(&protected, &link).unwrap();
+        let input = json!({
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": link,
+                "content": "{}"
+            }
+        })
+        .to_string();
+
+        assert_eq!(run_hook_from_str(&input), ExitCode::from(2));
+    }
+
+    #[test]
+    fn security_regression_invalid_forbid_config_does_not_fail_open() {
+        let env = IsolatedEnv::new();
+        let forbid_path = env.dir_path().join("rsh").join("forbidden.json");
+        std::fs::create_dir_all(forbid_path.parent().unwrap()).unwrap();
+        std::fs::write(&forbid_path, "not json").unwrap();
+
+        assert!(forbid::check("kubectl get pods").is_some());
+    }
+
+    #[test]
+    fn security_regression_forbid_list_reports_invalid_config() {
+        let cfg = forbid::ForbidConfig {
+            invalid: true,
+            ..forbid::ForbidConfig::default()
+        };
+
+        let output = render_forbid_list(&cfg);
+
+        assert!(output.contains("invalid forbid configuration"), "{output}");
     }
 
     #[test]

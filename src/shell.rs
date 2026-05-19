@@ -1,6 +1,10 @@
 use std::path::Path;
 
 pub fn tokenize(command: &str) -> Vec<String> {
+    shell_words::split(command).unwrap_or_else(|_| fallback_tokenize(command))
+}
+
+fn fallback_tokenize(command: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut chars = command.chars().peekable();
@@ -52,9 +56,7 @@ pub fn is_env_assignment(token: &str) -> bool {
         return false;
     };
     !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c == '_' || c.is_ascii_alphanumeric())
+        && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric())
         && name
             .chars()
             .next()

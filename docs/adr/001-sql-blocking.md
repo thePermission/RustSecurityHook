@@ -21,7 +21,7 @@ Two independent additions were made to `rsh`:
 | `sql-alter-table` | SQL — Destructive DDL | `(?i)\bALTER\s+TABLE\b` |
 | `sql-create-ddl` | SQL — Destructive DDL | `(?i)\bCREATE\s+(?:TABLE\|DATABASE\|SCHEMA)\b` |
 
-**2. Forbidden databases** (`src/forbid.rs`): A `databases` field added to `ForbidConfig` (stored in `forbidden.json`). When a SQL client binary is present in the command, `rsh` extracts the target host from a connection URL (`postgresql://host/...`) or a `-h`/`--host` flag and checks it against the forbidden list.
+**2. Forbidden databases** (`src/forbid.rs`): A `databases` field added to `ForbidConfig` (stored in `forbidden.json`). When a canonical SQL client binary is present in the command, `rsh` extracts the target host from arguments after that client token: a connection URL (`postgresql://host/...`) or a `-h`/`--host` flag, including attached short form (`-hhost`). Wrapper flags before the SQL client are ignored.
 
 CLI surface: `rsh forbid database <hostname>`, `rsh forbid remove database <hostname>`, `rsh forbid list`.
 
@@ -34,4 +34,5 @@ CLI surface: `rsh forbid database <hostname>`, `rsh forbid remove database <host
 
 - `grep "DROP TABLE"` is blocked — accepted trade-off for an AI-agent hook. The blast radius of false positives is low (the model retries without the keyword).
 - `psql mydbname` without a `-h` flag is not checked against the forbidden list (no hostname to extract) — fail-open is intentional.
+- SQL database forbid checks recognize canonical client names (`psql`, `mysql`, etc.). Registered aliases do not currently extend database host extraction.
 - `bin = None` rules add to the global scan cost; measured impact is negligible given the small rule count.

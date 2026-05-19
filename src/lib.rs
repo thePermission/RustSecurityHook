@@ -33,6 +33,14 @@ pub fn run_check_content(content: &str) -> ExitCode {
 }
 
 pub fn is_protected_path(path: &str) -> bool {
+    let configured = configured_rsh_paths();
+    path_matches_protected_patterns(path, &configured)
+        || std::fs::canonicalize(path).ok().is_some_and(|canonical| {
+            path_matches_protected_patterns(&path_to_match_string(&canonical), &configured)
+        })
+}
+
+fn path_matches_protected_patterns(path: &str, configured: &[String]) -> bool {
     let p = path.replace('\\', "/");
     p.contains("/.config/rsh/")
         || p.ends_with("/.config/rsh")
@@ -40,6 +48,41 @@ pub fn is_protected_path(path: &str) -> bool {
         || p == ".config/rsh"
         || p.ends_with("/.rsh-disabled")
         || p == ".rsh-disabled"
+        || configured
+            .iter()
+            .any(|protected| is_same_or_child(&p, protected))
+}
+
+fn configured_rsh_paths() -> Vec<String> {
+    let mut paths = Vec::new();
+    for path in [
+        aliases::config_path().ok(),
+        disabled::config_path().ok(),
+        disabled::flag_path_global().ok(),
+        forbid::config_path().ok(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        paths.push(path_to_match_string(&path));
+        if let Some(parent) = path.parent() {
+            paths.push(path_to_match_string(parent));
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+fn path_to_match_string(path: &std::path::Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn is_same_or_child(path: &str, protected: &str) -> bool {
+    path == protected
+        || path
+            .strip_prefix(protected)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 #[cfg(test)]
@@ -48,14 +91,18 @@ mod tests {
 
     #[test]
     fn protected_path_matches_rsh_config() {
-        assert!(is_protected_path("/home/user/.config/rsh/disabled-rules.json"));
+        assert!(is_protected_path(
+            "/home/user/.config/rsh/disabled-rules.json"
+        ));
         assert!(is_protected_path("~/.config/rsh/aliases.json"));
         assert!(is_protected_path(".config/rsh/forbidden.json"));
     }
 
     #[test]
     fn protected_path_matches_windows_backslash() {
-        assert!(is_protected_path(r"C:\Users\user\.config\rsh\disabled-rules.json"));
+        assert!(is_protected_path(
+            r"C:\Users\user\.config\rsh\disabled-rules.json"
+        ));
         assert!(is_protected_path(r".config\rsh\aliases.json"));
     }
 
@@ -74,5 +121,17 @@ mod tests {
         assert!(is_protected_path("/project/.rsh-disabled"));
         assert!(!is_protected_path(".rsh-disabled-backup"));
         assert!(!is_protected_path("rsh-disabled"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn security_regression_protected_path_matches_symlink_to_local_disable_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join(".rsh-disabled");
+        std::fs::write(&target, "").unwrap();
+        let link = dir.path().join("safe-name.json");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert!(is_protected_path(link.to_str().unwrap()));
     }
 }

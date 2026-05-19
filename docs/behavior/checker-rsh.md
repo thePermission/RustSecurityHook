@@ -21,6 +21,8 @@ The checker runs only the **regex blacklist pipeline** — no forbid checks.
 | `rsh-protect-disable` | `rsh rule disable <id>` | Prevents rsh from being neutered via the Bash tool |
 | `rsh-protect-forbid-remove` | `rsh forbid remove <type> <name>` | Prevents removing a forbid entry via the Bash tool |
 | `rsh-protect-config-access` | Any Bash command targeting `.config/rsh` | Prevents direct config file manipulation |
+| `rsh-self-disable` | `rsh off` / `rsh on` | Prevents agents from disabling or re-enabling the whole hook |
+| `rsh-guard-flag-file` | Any Bash command targeting `.rsh-disabled` or `rsh/disabled` | Protects the local and global disable flag files |
 
 ## Self-protection property
 
@@ -28,16 +30,13 @@ The checker runs only the **regex blacklist pipeline** — no forbid checks.
 
 ## Hardcoded path check (Write and Edit tools)
 
-The Write and Edit tool interception includes a hardcoded check for `.config/rsh/` paths in the hook entry point. This check operates independently of the blacklist and cannot be bypassed by disabling any rule. It applies to both the Bash tool and the Write/Edit tools.
+The Write and Edit tool interception includes a hardcoded protected-path check in the hook entry point. It covers `.config/rsh/`, the platform-specific rsh config files, `.rsh-disabled`, the global `rsh/disabled` flag, and symlinks that resolve to those paths. This check operates independently of the blacklist and cannot be bypassed by disabling any rule.
+
+Bash access to those paths is handled by the self-protection blacklist rules above.
 
 ## What remains allowed
 
 - `rsh rule enable <id>` — re-enabling is security-increasing
 - `rsh rule list`, `rsh list` — read-only operations
 - `rsh forbid cluster/namespace <name>` — adding restrictions
-- Manual edits to `~/.config/rsh/` outside Claude Code sessions (hook only runs during tool calls)
-
-## Source location
-
-- Blacklist rules: `src/blacklist.rs` lines 334–354 (rsh Self-Protection category)
-- RshChecker implementation: `src/checker.rs` lines 210–223
+- Manual edits to `~/.config/rsh/` outside Claude Code or Codex tool calls (the hook only runs during protected tool calls)

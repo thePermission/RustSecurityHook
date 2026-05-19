@@ -22,7 +22,9 @@ Rules with no associated binary (`bin = None`) are always evaluated regardless.
 
 ### Forbid fast-path
 
-`forbid::check` checks whether any known tool token (kubectl, helm, SQL clients, and their aliases) appears as a substring in the command before reading `forbidden.json` from disk. Commands with no matching token return immediately without file I/O.
+`forbid::check` checks whether any known tool token (kubectl, helm, SQL clients, and configured aliases) appears as a substring in the command before reading `forbidden.json` from disk. Commands with no matching token return immediately without file I/O.
+
+The token fast-path is only a pre-filter. The final forbid checks still perform structured command-token identification: kubectl and Helm use registered aliases, while database host extraction currently recognizes the canonical SQL client names.
 
 ## What it means for users
 

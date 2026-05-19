@@ -39,8 +39,7 @@ pub fn flag_path_local() -> PathBuf {
 }
 
 pub fn is_disabled() -> bool {
-    flag_path_global().map(|p| p.exists()).unwrap_or(false)
-        || flag_path_local().exists()
+    flag_path_global().map(|p| p.exists()).unwrap_or(false) || flag_path_local().exists()
 }
 
 pub fn load() -> HashSet<String> {

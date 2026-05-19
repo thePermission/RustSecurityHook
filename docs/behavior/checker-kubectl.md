@@ -72,6 +72,8 @@ Allowed: `kubectl apply -f ./local-file.yaml`.
 
 After the blacklist passes, `KubectlChecker` extracts the target cluster and namespace from the command and checks them against the configured forbid lists. This blocks individually safe commands (e.g., `kubectl get pods`) that target a protected environment.
 
+The forbid extractor identifies the actual kubectl token first, so wrapper flags in commands such as `sudo -n kubectl get pods` are not treated as kubectl namespace flags.
+
 See [[forbid-system]] for target extraction, kubeconfig fallback behavior, and the CLI.
 
 ## Subprocess Bypass

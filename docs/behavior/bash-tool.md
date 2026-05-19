@@ -35,6 +35,8 @@ The hook extracts the command string and passes it to the segment splitter.
 
 The `split_segments` function divides the input command on shell separators and produces a vector of segments. Each segment is classified as either `Direct` (a regular command) or `Script` (a file to be executed).
 
+After splitting, each fragment is tokenized with the `shell-words` crate. If tokenization fails because the fragment contains incomplete shell quoting, `rsh` falls back to its older lightweight tokenizer instead of treating the parse error as a block. This preserves the hook's fail-open behavior while handling normal shell quoting more accurately.
+
 ### Separators
 
 Splitting occurs on these shell metacharacters and operators:
@@ -63,11 +65,13 @@ A fragment becomes `Segment::Script { path }` when one of these conditions is me
 
 3. **Direct path execution**: The first token starts with `./` or `/`, or ends with `.sh` or `.bash`.
 
-Quoted paths are stripped of surrounding single or double quotes before extraction. For example, `bash "/tmp/deploy.sh"` yields the path `/tmp/deploy.sh`.
+Quoted paths are stripped according to shell tokenization rules before extraction. For example, `bash "/tmp/deploy.sh"` yields the path `/tmp/deploy.sh`.
+
+Before reading a script file, `rsh` expands the common home-directory forms `~`, `~/...`, `$HOME`, `$HOME/...`, `${HOME}`, and `${HOME}/...`. It does not perform general shell expansion, variable expansion for arbitrary variables, command substitution, or glob expansion.
 
 ### Fail-open Behavior
 
-If a script path cannot be read from the filesystem, that segment is silently skipped (the thread exits without producing a check).
+If the expanded script path cannot be read from the filesystem, `rsh` falls back to the literal path. If that also cannot be read, the segment is silently skipped.
 
 ## Step 2: Checker Selection
 
@@ -76,6 +80,7 @@ For each segment, the `detect_checkers` function scans the content (command text
 | Checker | Included when |
 |---------|---------------|
 | [[checker-fallback|FallbackChecker]] | Always included |
+| [[secret-file-protection|SecretFileChecker]] | Always included |
 | [[checker-kubectl|KubectlChecker]] | `kubectl` or a configured alias appears in content |
 | [[checker-helm|HelmChecker]] | `helm` or a configured alias appears in content |
 | [[checker-docker|DockerChecker]] | `docker`, `docker-compose`, or a configured alias appears in content |

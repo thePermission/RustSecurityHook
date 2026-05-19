@@ -176,12 +176,24 @@ pub(crate) fn matches_glob(pattern: &str, path: &str) -> bool {
 
 pub fn check_path(path: &str) -> Option<Hit> {
     let disabled = disabled::load();
+    if let Some(hit) = check_path_candidate(path, &disabled) {
+        return Some(hit);
+    }
+    std::fs::canonicalize(path)
+        .ok()
+        .and_then(|canonical| check_path_candidate(&canonical.to_string_lossy(), &disabled))
+}
+
+fn check_path_candidate(path: &str, disabled: &std::collections::HashSet<String>) -> Option<Hit> {
     for rule in RAW_SECRET_RULES {
         if disabled.contains(rule.id) {
             continue;
         }
         if rule.patterns.iter().any(|p| matches_glob(p, path)) {
-            return Some(Hit { id: rule.id, reason: rule.reason });
+            return Some(Hit {
+                id: rule.id,
+                reason: rule.reason,
+            });
         }
     }
     None
@@ -240,13 +252,19 @@ mod tests {
 
     #[test]
     fn glob_two_component_path_matches() {
-        assert!(matches_glob("**/.aws/credentials", "/home/user/.aws/credentials"));
+        assert!(matches_glob(
+            "**/.aws/credentials",
+            "/home/user/.aws/credentials"
+        ));
         assert!(matches_glob("**/.aws/credentials", ".aws/credentials"));
     }
 
     #[test]
     fn glob_two_component_path_no_match_on_different_name() {
-        assert!(!matches_glob("**/.aws/credentials", "/home/user/.aws/config"));
+        assert!(!matches_glob(
+            "**/.aws/credentials",
+            "/home/user/.aws/config"
+        ));
     }
 
     #[test]
@@ -263,7 +281,10 @@ mod tests {
 
     #[test]
     fn glob_case_insensitive_two_component() {
-        assert!(matches_glob("**/.aws/credentials", "/home/user/.AWS/Credentials"));
+        assert!(matches_glob(
+            "**/.aws/credentials",
+            "/home/user/.AWS/Credentials"
+        ));
     }
 
     // --- check_path ---

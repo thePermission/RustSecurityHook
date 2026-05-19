@@ -61,13 +61,15 @@ Before scanning content, `rsh` verifies that the target file path is not a prote
 
 ### Protected Paths
 
-A path is protected if it contains `.config/rsh/` (the rsh configuration directory). The check handles both forward and backslashes and is case-sensitive on Unix systems.
+A path is protected if it targets rsh's configuration directory or one of the hook disable flag files. The check handles both forward and backslashes, includes platform-specific configured paths, and canonicalizes existing paths so symlinks to protected files are also blocked.
 
 #### Examples of protected paths
 
 - `/home/user/.config/rsh/forbidden.json` — **blocked**
 - `~/.config/rsh/aliases.json` — **blocked**
 - `.config/rsh/disabled-rules.json` — **blocked**
+- `.rsh-disabled` — **blocked**
+- `/home/user/.config/rsh/disabled` — **blocked**
 - `/home/user/.config/other/config.json` — **allowed**
 
 #### What is protected
@@ -77,6 +79,8 @@ The `rsh` configuration directory stores:
 - `forbidden.json` — the forbid list (clusters, namespaces, databases)
 - `aliases.json` — command-to-alias mappings
 - `disabled-rules.json` — per-user rule enable/disable state
+- `disabled` — global hook disable flag
+- `.rsh-disabled` — local hook disable flag
 
 Writing to these files would allow a model to modify the hook's own behavior — for example, to add a cluster to the allow list or disable a blocking rule. The protected path check prevents this attack surface entirely.
 
@@ -146,4 +150,4 @@ The hook respects this contract:
 
 - [[bash-tool]] — The ToolChecker pipeline used by Bash and content-scanned edit tools
 - [[forbid-system]] — The cluster, namespace, and database forbid lists
-- [[rsh-self-protection]] — How `rsh` prevents modification of its own configuration
+- [[checker-rsh]] — How `rsh` prevents modification of its own configuration

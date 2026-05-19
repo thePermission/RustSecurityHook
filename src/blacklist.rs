@@ -1,4 +1,5 @@
 use crate::aliases::{self, ALIASES};
+use crate::shell;
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -424,10 +425,20 @@ pub fn rules() -> &'static [Rule] {
 }
 
 pub fn check_filtered(command: &str, disabled: &std::collections::HashSet<String>) -> Option<Hit> {
+    let normalized = shell::tokenize(command).join(" ");
+    let normalized = if normalized == command {
+        None
+    } else {
+        Some(normalized)
+    };
+
     for group in BIN_GROUPS.iter() {
-        if !group.tokens.is_empty()
-            && !group.tokens.iter().any(|t| command.contains(t.as_str()))
-        {
+        let group_matches = group.tokens.is_empty()
+            || group.tokens.iter().any(|t| command.contains(t.as_str()))
+            || normalized
+                .as_ref()
+                .is_some_and(|cmd| group.tokens.iter().any(|t| cmd.contains(t.as_str())));
+        if !group_matches {
             continue;
         }
         for &idx in &group.rule_indices {
@@ -435,7 +446,11 @@ pub fn check_filtered(command: &str, disabled: &std::collections::HashSet<String
             if disabled.contains(rule.id) {
                 continue;
             }
-            if rule.regex.is_match(command) {
+            if rule.regex.is_match(command)
+                || normalized
+                    .as_ref()
+                    .is_some_and(|cmd| rule.regex.is_match(cmd))
+            {
                 return Some(Hit {
                     id: rule.id,
                     reason: rule.reason,
@@ -454,16 +469,34 @@ pub fn check(command: &str) -> Option<Hit> {
 /// Pass `bin = Some("kubectl")` for kubectl-only rules, `bin = None` for bin=None rules.
 pub fn check_for_bin(content: &str, bin: Option<&str>) -> Option<Hit> {
     let disabled = &crate::disabled::DISABLED;
+    let normalized = shell::tokenize(content).join(" ");
+    let normalized = if normalized == content {
+        None
+    } else {
+        Some(normalized)
+    };
+
     for rule in RULES.iter() {
         let matches = match (rule.bin, bin) {
             (None, None) => true,
             (Some(rb), Some(b)) => rb == b,
             _ => false,
         };
-        if !matches { continue; }
-        if disabled.contains(rule.id) { continue; }
-        if rule.regex.is_match(content) {
-            return Some(Hit { id: rule.id, reason: rule.reason });
+        if !matches {
+            continue;
+        }
+        if disabled.contains(rule.id) {
+            continue;
+        }
+        if rule.regex.is_match(content)
+            || normalized
+                .as_ref()
+                .is_some_and(|cmd| rule.regex.is_match(cmd))
+        {
+            return Some(Hit {
+                id: rule.id,
+                reason: rule.reason,
+            });
         }
     }
     None
@@ -515,13 +548,17 @@ mod tests {
         assert!(blocks("kubectl delete pv my-pv"));
         assert!(blocks("kubectl delete pvc my-claim"));
         assert!(blocks("kubectl delete persistentvolume foo"));
-        assert!(blocks("kubectl delete persistentvolumeclaim bar -n staging"));
+        assert!(blocks(
+            "kubectl delete persistentvolumeclaim bar -n staging"
+        ));
     }
 
     #[test]
     fn blocks_delete_clusterrole_and_binding() {
         assert!(blocks("kubectl delete clusterrole admin-helper"));
-        assert!(blocks("kubectl delete clusterrolebinding cluster-admin-binding"));
+        assert!(blocks(
+            "kubectl delete clusterrolebinding cluster-admin-binding"
+        ));
         assert!(blocks("kubectl delete clusterroles foo"));
     }
 
@@ -676,9 +713,13 @@ mod tests {
 
     #[test]
     fn blocks_sql_alter_table() {
-        assert!(blocks(r#"psql -c "ALTER TABLE users ADD COLUMN email TEXT""#));
+        assert!(blocks(
+            r#"psql -c "ALTER TABLE users ADD COLUMN email TEXT""#
+        ));
         assert!(blocks(r#"mysql -e "alter table orders drop column foo""#));
-        assert!(!blocks(r#"sqlite3 app.db "UPDATE users SET name='x' WHERE id=1""#));
+        assert!(!blocks(
+            r#"sqlite3 app.db "UPDATE users SET name='x' WHERE id=1""#
+        ));
     }
 
     #[test]
@@ -686,7 +727,9 @@ mod tests {
         assert!(blocks(r#"mysql -e "CREATE TABLE tmp (id INT)""#));
         assert!(blocks(r#"psql -c "CREATE DATABASE test_db""#));
         assert!(blocks(r#"psql -c "create schema analytics""#));
-        assert!(!blocks(r#"psql -c "CREATE INDEX idx_email ON users(email)""#));
+        assert!(!blocks(
+            r#"psql -c "CREATE INDEX idx_email ON users(email)""#
+        ));
     }
     // ---- Docker — Volume Destruction ----
 
@@ -725,7 +768,10 @@ mod tests {
         assert!(blocks("docker rm -v mycontainer"));
         assert!(blocks("docker rm -fv mycontainer"));
         assert!(blocks("docker rm --volumes mycontainer"));
-        assert_eq!(hit_id("docker rm -v mycontainer"), Some("docker-rm-volumes"));
+        assert_eq!(
+            hit_id("docker rm -v mycontainer"),
+            Some("docker-rm-volumes")
+        );
     }
 
     #[test]
@@ -733,7 +779,10 @@ mod tests {
         assert!(blocks("docker compose down -v"));
         assert!(blocks("docker compose down --volumes"));
         assert!(blocks("docker compose -f compose.yml down -v"));
-        assert_eq!(hit_id("docker compose down -v"), Some("compose-down-volumes"));
+        assert_eq!(
+            hit_id("docker compose down -v"),
+            Some("compose-down-volumes")
+        );
         // Service names with -down suffix must not cause false positives
         assert!(!blocks("docker compose restart markdown-down -v"));
     }
@@ -865,6 +914,21 @@ mod tests {
         assert!(!blocks("cargo run"));
     }
 
+    #[test]
+    fn security_regression_blocks_shell_escaped_kubectl_binary() {
+        assert!(blocks(r"kube\ctl delete ns prod"));
+    }
+
+    #[test]
+    fn security_regression_blocks_shell_quoted_kubectl_verb() {
+        assert!(blocks("kubectl dele''te ns prod"));
+    }
+
+    #[test]
+    fn security_regression_blocks_shell_escaped_rsh_binary() {
+        assert!(blocks(r"r\sh off"));
+    }
+
     // ---- Cross-check: rule IDs are stable ----
 
     // ---- Subprocess list bypass ----
@@ -872,19 +936,29 @@ mod tests {
     #[test]
     fn blocks_kubectl_delete_in_subprocess_list() {
         // Python single-quoted list form
-        assert!(blocks("subprocess.run(['kubectl', 'delete', 'ns', 'prod'])"));
-        assert!(blocks("subprocess.run(['kubectl', 'delete', 'namespace', 'prod'])"));
+        assert!(blocks(
+            "subprocess.run(['kubectl', 'delete', 'ns', 'prod'])"
+        ));
+        assert!(blocks(
+            "subprocess.run(['kubectl', 'delete', 'namespace', 'prod'])"
+        ));
         // Double-quoted list form
-        assert!(blocks(r#"subprocess.run(["kubectl", "delete", "ns", "prod"])"#));
+        assert!(blocks(
+            r#"subprocess.run(["kubectl", "delete", "ns", "prod"])"#
+        ));
         // Full python3 -c invocation
         assert!(blocks(
             r#"python3 -c "import subprocess; subprocess.run(['kubectl', 'delete', 'ns', 'prod'])""#
         ));
         // Other function names wrapping the list
-        assert!(blocks("execv(['kubectl', 'delete', 'deployment', 'myapp'])"));
+        assert!(blocks(
+            "execv(['kubectl', 'delete', 'deployment', 'myapp'])"
+        ));
         // Non-destructive calls must not be blocked
         assert!(!blocks("subprocess.run(['kubectl', 'get', 'pods'])"));
-        assert!(!blocks("subprocess.run(['kubectl', 'apply', '-f', 'deploy.yaml'])"));
+        assert!(!blocks(
+            "subprocess.run(['kubectl', 'apply', '-f', 'deploy.yaml'])"
+        ));
     }
 
     #[test]
@@ -894,7 +968,9 @@ mod tests {
         assert!(blocks(r#"subprocess.run(["helm", "uninstall", "app"])"#));
         // Safe helm calls must not be blocked
         assert!(!blocks("subprocess.run(['helm', 'list'])"));
-        assert!(!blocks("subprocess.run(['helm', 'upgrade', 'app', 'chart'])"));
+        assert!(!blocks(
+            "subprocess.run(['helm', 'upgrade', 'app', 'chart'])"
+        ));
     }
 
     #[test]
@@ -958,24 +1034,15 @@ mod tests {
             Some("k8s-delete-namespace")
         );
         assert_eq!(hit_id("kubectl delete pvc db"), Some("k8s-delete-pv-pvc"));
-        assert_eq!(
-            hit_id("kubectl exec p -- bash"),
-            Some("k8s-exec-shell")
-        );
+        assert_eq!(hit_id("kubectl exec p -- bash"), Some("k8s-exec-shell"));
         assert_eq!(hit_id("helm uninstall foo"), Some("helm-uninstall"));
         assert_eq!(hit_id("kubectl proxy"), Some("k8s-proxy"));
-        assert_eq!(
-            hit_id(r#"psql -c "DELETE FROM users""#),
-            Some("sql-delete")
-        );
+        assert_eq!(hit_id(r#"psql -c "DELETE FROM users""#), Some("sql-delete"));
         assert_eq!(
             hit_id(r#"psql -c "TRUNCATE TABLE orders""#),
             Some("sql-truncate")
         );
-        assert_eq!(
-            hit_id(r#"psql -c "DROP TABLE foo""#),
-            Some("sql-drop")
-        );
+        assert_eq!(hit_id(r#"psql -c "DROP TABLE foo""#), Some("sql-drop"));
         assert_eq!(
             hit_id(r#"psql -c "ALTER TABLE users ADD COLUMN x INT""#),
             Some("sql-alter-table")
@@ -1074,7 +1141,10 @@ mod tests {
 
         // bin=None rules have empty tokens (never skipped).
         let binless = super::BIN_GROUPS.iter().find(|g| g.tokens.is_empty());
-        assert!(binless.is_some(), "there must be a bin=None group with empty tokens");
+        assert!(
+            binless.is_some(),
+            "there must be a bin=None group with empty tokens"
+        );
     }
 
     #[test]

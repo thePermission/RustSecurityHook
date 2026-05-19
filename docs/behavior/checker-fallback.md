@@ -54,14 +54,14 @@ Both single-quoted and double-quoted list forms match. Non-destructive calls (`[
 
 After the keyword rules, `FallbackChecker` calls `forbid::check_db` line by line on the content (skipping blank lines and `#` comments). Blocks SQL client commands targeting a forbidden database host.
 
-Supported clients: `mysql`, `mariadb`, `psql`, `sqlite3`, `sqlcmd`, `mssql-cli`.
+Supported canonical client names: `mysql`, `mariadb`, `psql`, `sqlite3`, `sqlcmd`, `mssql-cli`. Wrapper commands and leading environment assignments can appear before the client token. Registered aliases do not currently extend database host extraction.
 
 ### Host extraction
 
 Extracts the target host from:
 
 1. Connection URL — regex matches `mysql://`, `postgresql://`, etc.; captures the hostname
-2. `-h` or `--host` flag — extracts the argument following either flag
+2. `-h` or `--host` flag — extracts space-separated, `=`-separated, and attached short forms (`-hhost`)
 3. No extraction fallback — returns None if neither is present
 
 ### Configuration
@@ -91,9 +91,11 @@ Blocked:
 - `mysql -h prod.example.com mydb` — explicit `-h` flag targets forbidden host
 - `psql postgresql://user@legacy-db.internal/mydb` — URL contains forbidden host
 - `mariadb -h db.prod.local -u root` — flag extraction succeeds
+- `sudo -u postgres psql -h prod.example.com mydb` — wrapper options are ignored, SQL-client options are checked
 
 Allowed:
 
 - `mysql localhost mydb` — no `-h` flag, no URL (implicitly localhost)
 - `sqlite3 /tmp/test.db` — sqlite3 not in the extraction logic
 - `psql mydb` — no host flag or URL
+- `pg -h prod.example.com mydb` — `pg` is not one of the canonical SQL client names unless support is added in code

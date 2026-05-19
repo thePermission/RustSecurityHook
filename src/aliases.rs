@@ -60,8 +60,7 @@ pub fn save(map: &AliasMap) -> Result<PathBuf> {
             .with_context(|| format!("creating {}", parent.display()))?;
     }
     let pretty = serde_json::to_string_pretty(map)?;
-    std::fs::write(&path, pretty)
-        .with_context(|| format!("writing {}", path.display()))?;
+    std::fs::write(&path, pretty).with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
 }
 
@@ -105,20 +104,25 @@ pub fn detect_in_path(command: &str) -> Vec<String> {
 
     let mut out: Vec<String> = Vec::new();
     for dir in std::env::split_paths(&path_var) {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let p = entry.path();
-            let Some(name) = p.file_name().and_then(|n| n.to_str()) else { continue };
+            let Some(name) = p.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
             if name == command {
                 continue;
             }
             if !is_executable(&p) {
                 continue;
             }
-            if let Ok(canon) = std::fs::canonicalize(&p) {
-                if canon == target_canon && !out.iter().any(|x| x == name) {
-                    out.push(name.to_string());
-                }
+            if let Ok(canon) = std::fs::canonicalize(&p)
+                && canon == target_canon
+                && !out.iter().any(|x| x == name)
+            {
+                out.push(name.to_string());
             }
         }
     }

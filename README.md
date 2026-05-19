@@ -8,10 +8,10 @@ Out of the box, `rsh` covers:
 - **helm** — release uninstall/delete
 - **docker / docker-compose** — volume deletion, container and image cleanup
 - **SQL clients** (`psql`, `mysql`, `sqlite3`, …) — destructive DML and DDL keywords, matched against any binary
-- **Shell scripts** — when a command invokes a script (`bash script.sh`, `./deploy.sh`, `source file`, …), `rsh` reads and scans the script content before execution
+- **Shell scripts** — when a command invokes a script (`bash script.sh`, `./deploy.sh`, `source file`, `bash ~/deploy.sh`, …), `rsh` reads and scans the script content before execution
 - **Secret files** — blocks `Read`, `Write`, `Edit`, and `Bash` access to files that commonly contain credentials or private keys (`.env`, `*.pem`, `id_rsa`, `.aws/credentials`, and 16 more)
 
-See [`docs/rules.md`](docs/rules.md) for the full blacklist, or run `rsh list` to inspect all active rules (blacklist + secret file rules) at any time.
+See [`docs/rules.md`](docs/rules.md) for the full rule catalogue, or run `rsh list` to inspect active blacklist rules, secret file rules, forbid entries, and aliases at any time.
 
 ## Scope and limitations
 
@@ -92,7 +92,7 @@ To remove the hook, delete the corresponding `PreToolUse` entry from the relevan
 `rsh` is primarily invoked automatically by Claude Code or Codex — after `rsh init` you don't need to do anything else. For manual inspection:
 
 ```sh
-rsh list                                # show all rules and aliases
+rsh list                                # show all rules, forbidden entries, and aliases
 rsh check "kubectl delete ns prod"      # test a literal command against the blacklist
 ```
 
@@ -102,6 +102,15 @@ Exit codes (relevant when running as a hook):
 |------|---------------------------------------------------------------------|
 | `0`  | Command is allowed                                                  |
 | `2`  | Command is blocked; reason printed to stderr                        |
+
+## Development checks
+
+Formatting and linting are enforced as Rustup components, not Cargo dependencies. They are never linked into the `rsh` binary.
+
+```sh
+rustup component add rustfmt clippy
+make ci        # fmt-check + clippy + tests
+```
 
 ## Managing aliases
 
@@ -113,9 +122,9 @@ rsh detect-aliases           # auto-scan: find aliases for all rule binaries in 
 rsh detect-aliases helm      # auto-scan for a specific command
 ```
 
-**Detected automatically:** symlinks and hardlinks in `$PATH` whose `realpath()` resolves to the same binary.
+**Detected automatically:** symlinks in `$PATH` whose `canonicalize()` path resolves to the same binary.
 
-**Not detected:** wrapper scripts, shell aliases from `.bashrc`/`.zshrc` (which `bash -c` doesn't expand anyway), or renamed copies of the binary. A pure text blacklist can't defeat determined evasion.
+**Not detected:** wrapper scripts, shell aliases from `.bashrc`/`.zshrc` (which `bash -c` doesn't expand anyway), hardlinks, or renamed copies of the binary. Register those names manually with `rsh alias <cmd> <alias>` if you want them covered.
 
 Use `rsh list` at any time to see which aliases are baked into the rules.
 
@@ -131,13 +140,13 @@ rsh forbid list                     # show current forbid lists
 rsh forbid remove cluster prod-eu   # remove an entry
 ```
 
-When a kubectl/helm command runs, `rsh` checks:
+When a kubectl/helm command runs, `rsh` first identifies the actual tool token, skipping supported wrapper commands such as `sudo`, `env`, `time`, `nice`, and `stdbuf`. Flags belonging to the wrapper are ignored; only arguments after the kubectl/helm token are considered. Then `rsh` checks:
 
-1. Does the command contain `--context=<value>` (or `--kube-context=<value>` for helm)? If so, compare the value with the forbidden cluster list.
-2. Does it contain `--namespace=<value>` or `-n <value>`? Compare with the forbidden namespace list.
-3. If neither flag is present, `rsh` asks `kubectl` for the current context (`kubectl config current-context`) and the current namespace, and checks those.
+1. Does the tool invocation contain `--context=<value>` (or `--kube-context=<value>` for helm)? If so, compare the value with the forbidden cluster list.
+2. Does it contain `--namespace=<value>`, `--namespace <value>`, `-n <value>`, `-n<value>`, or `-n=<value>`? Compare with the forbidden namespace list.
+3. For any target not pinned by an explicit flag, `rsh` asks `kubectl` for the current context (`kubectl config current-context`) and/or current namespace, and checks those.
 
-When a supported SQL client runs, `rsh` extracts the target hostname from a connection URL or a `-h` / `--host` flag and compares it with the forbidden database list.
+When a supported SQL client runs, `rsh` extracts the target hostname from arguments after the SQL client token. Connection URLs and `-h` / `--host` flags are supported, including `-hhost` and `--host=host`.
 
 Storage: `~/.config/rsh/forbidden.json` (or the platform equivalent).
 
@@ -151,8 +160,12 @@ rsh check "<command>"        Run the blacklist + forbid checks against a command
 rsh list                     Show all rules, forbidden entries, and aliases
 rsh alias <cmd> <alias>      Register an alias
 rsh detect-aliases [cmd]     Auto-detect aliases
-rsh forbid ...               Manage forbidden clusters/namespaces (see above)
+rsh rule disable|enable <id> Disable or re-enable an individual rule
+rsh rule list                Show rules with disabled markers
+rsh forbid ...               Manage forbidden clusters/namespaces/databases (see above)
 rsh completions <shell>      Print shell completion script to stdout (bash, zsh, fish, powershell, elvish)
+rsh off [-g|--global]        Disable all checks with a local or global flag file
+rsh on  [-g|--global]        Re-enable checks by removing the flag file
 rsh help    (-h, --help)     Show help
 rsh --version (-V)           Show version
 ```

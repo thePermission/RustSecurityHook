@@ -9,7 +9,7 @@ aliases:
 
 # Alias System
 
-Most blacklist rules are bound to a specific binary (e.g. `kubectl`, `docker`). If a user has a shell alias or symlink that points to the same binary under a different name (e.g. `k` → `kubectl`, `d` → `docker`), commands issued via the alias would bypass those rules. The alias system closes this gap.
+Most blacklist rules are bound to a specific binary (e.g. `kubectl`, `docker`). If a user has another executable name that points to the same binary (e.g. `k` → `kubectl`, `d` → `docker`), commands issued via that name would bypass those rules. The alias system closes this gap for registered names.
 
 ## Storage
 
@@ -45,12 +45,14 @@ Example: `rsh alias kubectl k` — registers `k` as an alias for `kubectl`. If t
 rsh detect-aliases [cmd]
 ```
 
-Scans every directory in `$PATH` for files whose `canonicalize()` path matches the canonical binary. This catches **symlinks and hardlinks** but does **not** detect wrapper shell scripts or renamed copies.
+Scans every directory in `$PATH` for files whose `canonicalize()` path matches the canonical binary. This catches normal **symlinks** but does **not** reliably detect hardlinks, wrapper shell scripts, shell aliases, or renamed copies.
 
 - With no argument: scans all binaries that appear as `bin` in at least one rule (currently `kubectl`, `helm`, `docker`, `docker-compose`).
 - With one or more arguments: scans only those specific commands.
 
 `rsh init` automatically runs `detect-aliases` for all bound binaries after writing the hook entry to `settings.json`.
+
+Hardlinks and wrapper names can still be covered by registering them manually with `rsh alias <command> <alias>`.
 
 ## How Rules Use Aliases
 
@@ -62,4 +64,4 @@ When a rule has `bin = Some("kubectl")`, the regex is assembled as:
 
 The first token in the alternation is always the canonical binary name; registered aliases follow. This means the regex fires regardless of which name the user typed.
 
-Rules with `bin = None` (SQL keyword rules, subprocess-list bypass rules) are not affected by aliases — they match the full command string unconditionally.
+Rules with `bin = None` (SQL keyword rules, subprocess-list bypass rules) are not affected by aliases — they match the full command string unconditionally. Kubectl and Helm forbid checks use the same alias map as their blacklist rules. Database forbid checks currently recognize canonical SQL client names only.
