@@ -1,0 +1,30 @@
+Benchmark baseline — 2026-05-20
+rsh v0.8.1 · cargo bench · sequential checker (no threads)
+
+| Benchmark                                    | low        | median     | high       |
+|----------------------------------------------|------------|------------|------------|
+| edge/empty                                   |   47.462 ns |   47.567 ns |   47.674 ns |
+| harmless/ls -la                              |    3.7330 µs |    3.7492 µs |    3.7685 µs |
+| harmless/git status                          |    9.9967 µs |   10.027 µs |   10.059 µs |
+| harmless/cargo build --release               |   10.381 µs |   10.400 µs |   10.420 µs |
+| harmless/echo hello                          |   10.265 µs |   10.289 µs |   10.314 µs |
+| harmless/cat /tmp/file                       |   10.435 µs |   10.481 µs |   10.535 µs |
+| blocked_k8s/kubectl delete ns production     |   25.097 µs |   25.294 µs |   25.524 µs |
+| blocked_k8s/kubectl delete --all -n default  |   22.075 µs |   22.110 µs |   22.147 µs |
+| blocked_k8s/kubectl delete crd mykind        |   24.285 µs |   24.382 µs |   24.490 µs |
+| blocked_helm/helm uninstall my-release       |   18.202 µs |   18.276 µs |   18.359 µs |
+| blocked_helm/helm rollback my-release 0      |   29.710 µs |   29.758 µs |   29.812 µs |
+| edge/10k_chars                               |   86.503 µs |   86.979 µs |   87.482 µs |
+
+Improvement vs. thread-based baseline (2026-05-20, pre-refactor):
+  edge/empty:          187 ns  → 47.6 ns   (4.0×)
+  harmless/ls -la:     29.2 µs → 3.7 µs    (7.9×)
+  harmless/git status: 37.4 µs → 10.0 µs   (3.7×)
+  blocked_k8s (avg):   44.6 µs → 24.3 µs   (1.8×)
+  blocked_helm (avg):  49.3 µs → 24.0 µs   (2.1×)
+  edge/10k_chars:     107.7 µs → 87.0 µs   (1.2×)
+
+Notes:
+- Thread-spawn overhead (~10-20 µs per checker) was the dominant cost in the old design.
+- Sequential execution removes all mpsc channel, Arc/AtomicBool, and thread allocation overhead.
+- Harmless fast-path now ~3.7-10.5 µs; empty input 47 ns.

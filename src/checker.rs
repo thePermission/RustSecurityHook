@@ -1,10 +1,6 @@
 use crate::secrets;
 use crate::shell;
 use crate::{aliases, blacklist, forbid};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hit {
@@ -388,12 +384,6 @@ pub fn detect_checkers(content: &str) -> Vec<Box<dyn ToolChecker>> {
 }
 
 pub fn run_parallel_checks(segments: Vec<Segment>) -> Option<Hit> {
-    use std::sync::mpsc;
-    use std::thread;
-
-    let stop = Arc::new(AtomicBool::new(false));
-    let (tx, rx) = mpsc::channel::<Hit>();
-
     for segment in segments {
         let content: String = match segment {
             Segment::Direct { command } => command,
@@ -402,24 +392,13 @@ pub fn run_parallel_checks(segments: Vec<Segment>) -> Option<Hit> {
                 None => continue,
             },
         };
-        let checkers = detect_checkers(&content);
-        for checker in checkers {
-            let stop = stop.clone();
-            let tx = tx.clone();
-            let content = content.clone();
-            thread::spawn(move || {
-                if stop.load(Ordering::Relaxed) {
-                    return;
-                }
-                if let Some(hit) = checker.check(&content) {
-                    stop.store(true, Ordering::Relaxed);
-                    let _ = tx.send(hit);
-                }
-            });
+        for checker in detect_checkers(&content) {
+            if let Some(hit) = checker.check(&content) {
+                return Some(hit);
+            }
         }
     }
-    drop(tx);
-    rx.recv().ok()
+    None
 }
 
 #[cfg(test)]
