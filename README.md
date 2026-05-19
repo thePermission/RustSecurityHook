@@ -9,8 +9,9 @@ Out of the box, `rsh` covers:
 - **docker / docker-compose** — volume deletion, container and image cleanup
 - **SQL clients** (`psql`, `mysql`, `sqlite3`, …) — destructive DML and DDL keywords, matched against any binary
 - **Shell scripts** — when a command invokes a script (`bash script.sh`, `./deploy.sh`, `source file`, …), `rsh` reads and scans the script content before execution
+- **Secret files** — blocks `Read`, `Write`, `Edit`, and `Bash` access to files that commonly contain credentials or private keys (`.env`, `*.pem`, `id_rsa`, `.aws/credentials`, and 16 more)
 
-See [`docs/rules.md`](docs/rules.md) for the full list of 45 rules grouped by binary, or run `rsh list` to inspect the active rules at any time.
+See [`docs/rules.md`](docs/rules.md) for the full blacklist, or run `rsh list` to inspect all active rules (blacklist + secret file rules) at any time.
 
 ## Scope and limitations
 
