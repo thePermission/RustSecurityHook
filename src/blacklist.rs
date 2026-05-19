@@ -330,6 +330,56 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         r"[^|;&\n]*?\sdown\b",
         "Stops and removes all service containers (volumes kept without -v)",
     ),
+    // ---- GitLab CLI — Destructive -----------------------------------------
+    (
+        "glab-repo-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\b(?:repo|project)\s+delete\b",
+        "Deletes the entire GitLab repository/project — irreversible",
+    ),
+    (
+        "glab-release-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\brelease\s+delete\b",
+        "Deletes a published GitLab release",
+    ),
+    (
+        "glab-variable-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\bvariable\s+delete\b",
+        "Deletes a CI/CD variable — often contains undocumented secrets",
+    ),
+    (
+        "glab-member-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\bmember\s+delete\b",
+        "Removes a team member's access to the project",
+    ),
+    (
+        "glab-issue-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\bissue\s+delete\b",
+        "Hard-deletes an issue — distinct from closing, not recoverable",
+    ),
+    (
+        "glab-label-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\blabel\s+delete\b",
+        "Permanently deletes a label from the project",
+    ),
+    (
+        "glab-protected-branch-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\bprotected-branch(?:es)?\s+delete\b",
+        "Removes branch protection rules — allows force-push and deletion of protected branches",
+    ),
     // ---- rsh Self-Protection -------------------------------------------
     (
         "rsh-protect-disable",
@@ -894,6 +944,70 @@ mod tests {
         assert!(!blocks("docker-compose logs markdown-down"));
     }
 
+    // ---- GitLab CLI — Destructive ----
+
+    #[test]
+    fn blocks_glab_repo_delete() {
+        assert!(blocks("glab repo delete myproject"));
+        assert!(blocks("glab project delete myproject"));
+        assert!(blocks("glab --repo=owner/repo repo delete myproject"));
+        assert!(!blocks("glab repo list"));
+        assert!(!blocks("glab repo clone myproject"));
+        assert!(!blocks("glab repo create myproject"));
+    }
+
+    #[test]
+    fn blocks_glab_release_delete() {
+        assert!(blocks("glab release delete v1.0.0"));
+        assert!(blocks("glab release delete v1.0.0 --yes"));
+        assert!(!blocks("glab release list"));
+        assert!(!blocks("glab release create v2.0.0"));
+        assert!(!blocks("glab release view v1.0.0"));
+    }
+
+    #[test]
+    fn blocks_glab_variable_delete() {
+        assert!(blocks("glab variable delete MY_SECRET"));
+        assert!(blocks("glab variable delete MY_SECRET --scope project"));
+        assert!(!blocks("glab variable list"));
+        assert!(!blocks("glab variable get MY_SECRET"));
+        assert!(!blocks("glab variable set MY_VAR value"));
+    }
+
+    #[test]
+    fn blocks_glab_member_delete() {
+        assert!(blocks("glab member delete johndoe"));
+        assert!(blocks("glab member delete johndoe --yes"));
+        assert!(!blocks("glab member list"));
+        assert!(!blocks("glab member add johndoe --role=developer"));
+    }
+
+    #[test]
+    fn blocks_glab_issue_delete() {
+        assert!(blocks("glab issue delete 42"));
+        assert!(blocks("glab issue delete 42 --yes"));
+        assert!(!blocks("glab issue list"));
+        assert!(!blocks("glab issue close 42"));
+        assert!(!blocks("glab issue view 42"));
+        assert!(!blocks("glab issue create"));
+    }
+
+    #[test]
+    fn blocks_glab_label_delete() {
+        assert!(blocks("glab label delete bug"));
+        assert!(blocks("glab label delete \"my label\""));
+        assert!(!blocks("glab label list"));
+        assert!(!blocks("glab label create bug --color=#FF0000"));
+    }
+
+    #[test]
+    fn blocks_glab_protected_branch_delete() {
+        assert!(blocks("glab protected-branch delete main"));
+        assert!(blocks("glab protected-branches delete main"));
+        assert!(!blocks("glab protected-branch list"));
+        assert!(!blocks("glab protected-branch create main"));
+    }
+
     // ---- General negative ----
 
     #[test]
@@ -993,6 +1107,13 @@ mod tests {
             "docker-system-prune-risky",
             "docker-volume-prune",
             "docker-volume-rm",
+            "glab-issue-delete",
+            "glab-label-delete",
+            "glab-member-delete",
+            "glab-protected-branch-delete",
+            "glab-release-delete",
+            "glab-repo-delete",
+            "glab-variable-delete",
             "helm-subprocess-list",
             "helm-uninstall",
             "k8s-apply-remote",
