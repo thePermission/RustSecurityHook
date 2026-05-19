@@ -975,20 +975,24 @@ mod tests {
     /// flag the developer may have set.
     ///
     /// # Thread safety
-    /// `set_var`/`remove_var` are process-wide. Tests using this helper must run
-    /// single-threaded (`cargo test -- --test-threads=1`) or be careful not to
-    /// run concurrently with other env-reading tests.
+    /// `set_var`/`remove_var` are process-wide. `IsolatedEnv` serializes all
+    /// concurrent uses via `ENV_LOCK` so tests can run with the default thread
+    /// count without racing each other.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     struct IsolatedEnv {
         _dir: tempfile::TempDir,
         prev: Option<std::ffi::OsString>,
+        _guard: std::sync::MutexGuard<'static, ()>,
     }
 
     impl IsolatedEnv {
         fn new() -> Self {
+            let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let dir = tempfile::tempdir().unwrap();
             let prev = std::env::var_os("XDG_CONFIG_HOME");
             unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
-            IsolatedEnv { _dir: dir, prev }
+            IsolatedEnv { _dir: dir, prev, _guard: guard }
         }
 
         fn dir_path(&self) -> &std::path::Path {

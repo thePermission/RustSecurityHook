@@ -147,7 +147,10 @@ pub fn all_rules() -> &'static [SecretRule] {
 ///   `**/<name>.*`     — basename starts with `<name>.`
 ///   `**/<dir>/<name>` — last two path components match exactly
 pub(crate) fn matches_glob(pattern: &str, path: &str) -> bool {
-    let path = path.replace('\\', "/");
+    // Normalize separators and fold to lowercase so `.ENV` matches `**/.env`
+    // on case-insensitive filesystems (macOS default, Windows).
+    // All static patterns are already ASCII lowercase.
+    let path = path.replace('\\', "/").to_ascii_lowercase();
     let Some(tail) = pattern.strip_prefix("**/") else {
         return false;
     };
@@ -249,6 +252,18 @@ mod tests {
     #[test]
     fn glob_windows_backslash_normalised() {
         assert!(matches_glob("**/.env", r"C:\Users\dev\project\.env"));
+    }
+
+    #[test]
+    fn glob_case_insensitive_basename() {
+        assert!(matches_glob("**/.env", "/project/.ENV"));
+        assert!(matches_glob("**/.env", "/project/.Env"));
+        assert!(matches_glob("**/*.pem", "/etc/ssl/CERT.PEM"));
+    }
+
+    #[test]
+    fn glob_case_insensitive_two_component() {
+        assert!(matches_glob("**/.aws/credentials", "/home/user/.AWS/Credentials"));
     }
 
     // --- check_path ---

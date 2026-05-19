@@ -251,10 +251,23 @@ impl ToolChecker for SecretFileChecker {
     }
 
     fn check(&self, content: &str) -> Option<Hit> {
+        // Known limitations (not expanded before rsh sees the command):
+        //   - Shell glob expansion:  `cat /project/.env*` passes as literal `.env*`
+        //   - Attached short flags:  `curl -K/etc/ssl/server.pem` (no `=` separator)
+        //   - Variable indirection:  `F=/project/.env; cat $F`
         let tokens = shell::tokenize(content);
-        for token in tokens.iter().skip(1) {
-            let candidate = if token.starts_with('-') {
-                // --flag=VALUE: check the value portion
+        for (i, token) in tokens.iter().enumerate() {
+            let candidate = if i == 0 {
+                // First token is usually the command name, but may be a
+                // shell env-assignment like `FOO=/home/user/.env cmd`.
+                // Inspect the value side when KEY=/path pattern is present.
+                if let Some((key, val)) = token.split_once('=') {
+                    if !key.contains('/') { val } else { continue; }
+                } else {
+                    continue;
+                }
+            } else if token.starts_with('-') {
+                // --flag=VALUE: inspect the value portion
                 if let Some((_flag, val)) = token.split_once('=') {
                     val
                 } else {
@@ -658,5 +671,19 @@ mod tests {
         let hit = run_parallel_checks(segs);
         assert!(hit.is_some());
         assert!(hit.unwrap().rule_id.contains("secret-dotenv"));
+    }
+
+    #[test]
+    fn secret_file_checker_blocks_env_assignment_prefix() {
+        // `FOO=/home/user/.env cmd` — value of first token's KEY=VALUE must be checked
+        let hit = SecretFileChecker.check("SECRET_PATH=/home/user/.env some_tool");
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("secret-dotenv"));
+    }
+
+    #[test]
+    fn secret_file_checker_does_not_block_plain_command_name() {
+        // First token with no `=` is a command name — should be skipped
+        assert!(SecretFileChecker.check("env FOO=bar ls").is_none());
     }
 }
