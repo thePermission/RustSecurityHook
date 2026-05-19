@@ -295,6 +295,38 @@ fn list_rules() {
         }
     }
 
+    print_section("SECRET FILE RULES");
+    {
+        let secret_rules = secrets::all_rules();
+        let mut by_category: std::collections::BTreeMap<&str, Vec<&secrets::SecretRule>> =
+            std::collections::BTreeMap::new();
+        for r in secret_rules {
+            by_category.entry(r.category).or_default().push(r);
+        }
+        println!(
+            "  {} rule(s) across {} categor{}\n",
+            secret_rules.len(),
+            by_category.len(),
+            if by_category.len() == 1 { "y" } else { "ies" }
+        );
+        for (cat, items) in &by_category {
+            println!("  ▌ {} ({})", cat, items.len());
+            println!("  ────────────────────────────────────────────────────────────");
+            for r in items {
+                if disabled_set.contains(r.id) {
+                    println!("    • {}  [DISABLED]", r.id);
+                } else {
+                    println!("    • {}", r.id);
+                }
+                println!("        reason   : {}", r.reason);
+                for p in r.patterns {
+                    println!("        pattern  : {p}");
+                }
+                println!();
+            }
+        }
+    }
+
     print_section("FORBIDDEN CLUSTERS, NAMESPACES AND DATABASES");
     let fcfg = forbid::load();
     if fcfg.is_empty() {
@@ -520,6 +552,7 @@ fn extract_command(tool_input: &serde_json::Value) -> &str {
 
 fn is_valid_rule_id(id: &str) -> bool {
     blacklist::rules().iter().any(|r| r.id == id)
+        || secrets::all_rules().iter().any(|r| r.id == id)
 }
 
 fn run_rule(action: RuleAction) -> ExitCode {
@@ -967,6 +1000,13 @@ mod tests {
                 None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
             }
         }
+    }
+
+    #[test]
+    fn is_valid_rule_id_accepts_secret_rule() {
+        assert!(is_valid_rule_id("secret-dotenv"));
+        assert!(is_valid_rule_id("secret-pem"));
+        assert!(!is_valid_rule_id("secret-nonexistent"));
     }
 
     #[test]
