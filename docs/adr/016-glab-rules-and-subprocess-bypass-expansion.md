@@ -60,6 +60,25 @@ Three new `bin = None` rules extend the bypass coverage from ADR 005:
 - **Skip subprocess bypass for docker/rsh:** Rejected — consistency and completeness
   matter; the gap was real and the fix is cheap.
 
+## Performance
+
+Benchmarked against the baseline from ADR 015 (sequential checker, rsh v0.8.1).
+All changes are within ±3.2% — within normal measurement noise.
+
+| Benchmark | Baseline | After | Δ |
+|---|---|---|---|
+| edge/empty | 47.567 ns | 47.733 ns | +0.3% |
+| harmless/ls -la | 3.749 µs | 3.693 µs | −1.5% |
+| harmless/git status | 10.027 µs | 10.150 µs | +1.2% |
+| blocked_k8s/delete ns | 25.294 µs | 24.799 µs | −2.0% |
+| blocked_helm/uninstall | 18.276 µs | 18.543 µs | +1.5% |
+| edge/10k_chars | 86.979 µs | 89.726 µs | +3.2% |
+
+No measurable overhead. The BIN_GROUPS fast-path skips all glab rules when `glab`
+does not appear in the command, so existing kubectl/helm/docker benchmarks are unaffected.
+The three new `bin = None` subprocess-bypass rules run on every command but are simple
+regex operations with negligible cost.
+
 ## Consequences
 
 - 6 glab rules + 3 subprocess-bypass rules = 9 new rules, bringing the total to 53.
