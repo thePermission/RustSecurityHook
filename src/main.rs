@@ -1,4 +1,4 @@
-use rsh::{aliases, blacklist, disabled, forbid};
+use rsh::{aliases, blacklist, disabled, forbid, secrets};
 use rsh::{is_protected_path, run_check, run_check_content};
 
 use anyhow::{Context, Result};
@@ -427,6 +427,21 @@ fn run_hook_from_str(input: &str) -> ExitCode {
     }
 
     match input.tool_name.as_str() {
+        "Read" => {
+            let file_path = input
+                .tool_input
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if let Some(h) = secrets::check_path(file_path) {
+                eprintln!(
+                    "rsh blocked read of secret file (rule: {}): {}",
+                    h.id, h.reason
+                );
+                return ExitCode::from(2);
+            }
+            ExitCode::SUCCESS
+        }
         "Write" => {
             let file_path = input
                 .tool_input
@@ -440,6 +455,13 @@ fn run_hook_from_str(input: &str) -> ExitCode {
                 .unwrap_or("");
             if is_protected_path(file_path) {
                 eprintln!("rsh blocked write to protected path: {file_path}");
+                return ExitCode::from(2);
+            }
+            if let Some(h) = secrets::check_path(file_path) {
+                eprintln!(
+                    "rsh blocked write to secret file (rule: {}): {}",
+                    h.id, h.reason
+                );
                 return ExitCode::from(2);
             }
             run_check_content(content)
@@ -457,6 +479,13 @@ fn run_hook_from_str(input: &str) -> ExitCode {
                 .unwrap_or("");
             if is_protected_path(file_path) {
                 eprintln!("rsh blocked edit of protected path: {file_path}");
+                return ExitCode::from(2);
+            }
+            if let Some(h) = secrets::check_path(file_path) {
+                eprintln!(
+                    "rsh blocked edit of secret file (rule: {}): {}",
+                    h.id, h.reason
+                );
                 return ExitCode::from(2);
             }
             run_check_content(new_string)
@@ -909,6 +938,27 @@ fn install_codex_hook(value: &mut serde_json::Value, cmd: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// Temporarily redirect XDG_CONFIG_HOME to an empty temp dir so tests that
+    /// call `run_hook_from_str` are not affected by a real `~/.config/rsh/disabled`
+    /// flag the developer may have set.
+    struct IsolatedEnv {
+        _dir: tempfile::TempDir,
+    }
+
+    impl IsolatedEnv {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
+            IsolatedEnv { _dir: dir }
+        }
+    }
+
+    impl Drop for IsolatedEnv {
+        fn drop(&mut self) {
+            unsafe { std::env::remove_var("XDG_CONFIG_HOME") };
+        }
+    }
+
     #[test]
     fn cli_debug_assert() {
         Cli::command().debug_assert();
@@ -967,6 +1017,7 @@ mod tests {
 
     #[test]
     fn run_hook_blocks_codex_exec_command_payload() {
+        let _env = IsolatedEnv::new();
         let input = r#"{
             "tool_name":"exec_command",
             "tool_input":{"cmd":"docker compose down -v"}
@@ -976,6 +1027,7 @@ mod tests {
 
     #[test]
     fn run_hook_blocks_namespaced_exec_command_payload() {
+        let _env = IsolatedEnv::new();
         let input = r#"{
             "tool_name":"functions.exec_command",
             "tool_input":{"cmd":"kubectl delete ns prod"}
@@ -985,6 +1037,7 @@ mod tests {
 
     #[test]
     fn run_hook_blocks_unknown_command_tool_payload() {
+        let _env = IsolatedEnv::new();
         let input = r#"{
             "tool_name":"shell_runner",
             "tool_input":{"command":"docker compose down -v"}
@@ -1027,5 +1080,33 @@ mod tests {
         assert!(flag.exists());
         std::fs::remove_file(&flag).unwrap();
         assert!(!flag.exists());
+    }
+
+    #[test]
+    fn run_hook_blocks_read_of_dotenv() {
+        let _env = IsolatedEnv::new();
+        let input = r#"{"tool_name":"Read","tool_input":{"file_path":"/home/user/.env"}}"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::from(2));
+    }
+
+    #[test]
+    fn run_hook_allows_read_of_normal_file() {
+        let _env = IsolatedEnv::new();
+        let input = r#"{"tool_name":"Read","tool_input":{"file_path":"/home/user/main.rs"}}"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_hook_blocks_write_to_secret_path() {
+        let _env = IsolatedEnv::new();
+        let input = r#"{"tool_name":"Write","tool_input":{"file_path":"/home/user/.env","content":"HELLO=world"}}"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::from(2));
+    }
+
+    #[test]
+    fn run_hook_blocks_edit_of_secret_path() {
+        let _env = IsolatedEnv::new();
+        let input = r#"{"tool_name":"Edit","tool_input":{"file_path":"/home/user/id_rsa","new_string":"fake key"}}"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::from(2));
     }
 }
