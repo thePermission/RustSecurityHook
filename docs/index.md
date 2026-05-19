@@ -38,7 +38,7 @@ flowchart TD
 
     D --> E[For each segment:\ndetect_checkers]
 
-    E --> F[Spawn one thread\nper checker\nfail-fast stop flag]
+    E --> F[Run each checker\nsequentially\nstop on first hit]
 
     F --> G{Any checker\nreturns a hit?}
 
@@ -55,7 +55,7 @@ How each intercepted tool call is processed end-to-end:
 
 | Page | What it explains |
 |---|---|
-| [[bash-tool\|bash-tool.md]] | Segment splitting, script detection, chained commands, parallel checker pipeline |
+| [[bash-tool\|bash-tool.md]] | Segment splitting, script detection, chained commands, sequential checker pipeline |
 | [[write-edit-tool\|write-edit-tool.md]] | Protected path check, content scan for Claude `Write`/`Edit` and Codex `apply_patch` |
 
 ## Tool categories (checkers)
@@ -94,7 +94,8 @@ Each tool family has its own checker with its own set of measures:
 | [[001-bingroup-fast-path\|adr/001-bingroup-fast-path.md]] | BinGroup fast-path |
 | [[009-rsh-self-protection\|adr/009-rsh-self-protection.md]] | rsh self-protection rules and protected config paths |
 | [[010-criterion-benchmarks\|adr/010-criterion-benchmarks.md]] | Criterion benchmark suite |
-| [[011-tool-checker-parallel-pipeline\|adr/011-tool-checker-parallel-pipeline.md]] | ToolChecker trait and parallel check pipeline |
+| [[011-tool-checker-parallel-pipeline\|adr/011-tool-checker-parallel-pipeline.md]] | ToolChecker trait and check pipeline (parallel execution, superseded by ADR 015) |
+| [[015-sequential-checker-execution\|adr/015-sequential-checker-execution.md]] | Replace thread-per-checker with sequential execution |
 | [[012-per-checker-documentation-structure\|adr/012-per-checker-documentation-structure.md]] | Per-checker documentation structure — replacing thematic docs |
 | [[013-secret-file-protection\|adr/013-secret-file-protection.md]] | Secret file path protection |
 | [[014-shell-tokenization-and-scoped-target-extraction\|adr/014-shell-tokenization-and-scoped-target-extraction.md]] | Shell tokenization, home-path expansion, and scoped target extraction |

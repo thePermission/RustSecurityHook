@@ -1,5 +1,7 @@
 # ADR 011: ToolChecker Trait and Parallel Check Pipeline
 
+> **Superseded (partially) by [ADR 015](015-sequential-checker-execution.md)**: the `ToolChecker` trait, segment classification, and checker selection described here remain in place. The parallel execution model (threads, `Arc<AtomicBool>`, `mpsc`) was replaced by sequential execution in ADR 015.
+
 ## Context
 
 `rsh` previously ran checks sequentially: `blacklist::check` on the full command string,

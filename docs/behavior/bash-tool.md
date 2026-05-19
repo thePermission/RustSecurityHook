@@ -90,25 +90,16 @@ For `Segment::Script`, the entire file contents are scanned — not just the com
 
 Three checkers apply additional forbid checks beyond the regex blacklist: [[checker-kubectl|KubectlChecker]] and [[checker-helm|HelmChecker]] check the target cluster and namespace, [[checker-fallback|FallbackChecker]] checks the database host. See [[forbid-system]] for details.
 
-## Step 3: Parallel Execution
+## Step 3: Sequential Execution
 
-All checker instances (across all segments) are spawned as independent threads. They share two synchronization primitives:
+For each segment, the selected checkers are run one by one in the order returned by `detect_checkers`. Execution stops at the first hit and returns it immediately. If no checker produces a hit for any segment, `run_parallel_checks` returns `None`.
 
-- **Stop flag**: An `AtomicBool` that signals when the first hit has been found.
-- **Channel**: An `mpsc` channel for transmitting the winning hit.
-
-Execution proceeds as follows:
-
-1. For each segment, a thread is spawned for each selected checker.
-2. Each thread checks the stop flag on entry. If it is set, the thread returns immediately.
-3. If not set, the thread runs its checker against the segment content.
-4. If the checker returns a hit, the thread sets the stop flag and sends the hit over the channel.
-5. After all threads are spawned, the sender is dropped. The receiver waits for the first hit or returns `None` if all threads exit without finding one.
+The function name `run_parallel_checks` is preserved for API stability; the implementation is sequential since ADR 015.
 
 ### Outcome
 
 - **Exit 0 (allow)**: No checker produced a hit; the command is allowed.
-- **Exit 2 (block)**: At least one checker produced a hit; the reason is written to stderr, and the entire Bash tool call is refused.
+- **Exit 2 (block)**: A checker produced a hit; the reason is written to stderr, and the entire Bash tool call is refused.
 
 ## Example: Chained Command with Script
 
@@ -128,11 +119,11 @@ The `split_segments` function produces three segments:
 
 If `/tmp/deploy.sh` contains the text `kubectl delete ns prod`, the following occurs:
 
-1. Two checkers are spawned for segment 1 (`KubectlChecker` and `FallbackChecker`).
-2. Two checkers are spawned for segment 2 (at minimum `KubectlChecker` and `FallbackChecker`; if the script file also contains `docker`, then `DockerChecker` too).
-3. Two checkers are spawned for segment 3 (`DockerChecker` and `FallbackChecker`).
+1. Segment 1 (`kubectl get pods`): `FallbackChecker`, `SecretFileChecker`, `KubectlChecker` run in sequence — no hit.
+2. Segment 2 (script contents): `KubectlChecker.check()` finds `kubectl delete ns prod` and returns a hit immediately.
+3. Segment 3 is never reached.
 
-When any thread scanning segment 2 runs `KubectlChecker.check()` against the script contents and finds `kubectl delete ns prod`, it sets the stop flag and sends the hit. Remaining threads observe the flag and exit without work. The hook returns exit code 2 with a message on stderr — the entire Bash call is blocked, even though segment 1 and segment 3 were individually safe.
+The hook returns exit code 2 with a message on stderr — the entire Bash call is blocked, even though segment 1 and segment 3 were individually safe.
 
 ## Exit Codes
 

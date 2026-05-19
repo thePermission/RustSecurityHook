@@ -116,9 +116,9 @@ If the path check passes, the payload is scanned using the full ToolChecker pipe
 
 1. **Segment splitting** (`split_segments`): Divides the content on shell separators (`;`, `&&`, `||`, `|`, `\n`). Each fragment is classified as `Segment::Direct` or `Segment::Script`.
 2. **Checker selection** (`detect_checkers`): Scans the content for known binary names (`kubectl`, `helm`, `docker`, `rsh`, etc.) and returns the relevant checkers. The `FallbackChecker` is always included.
-3. **Parallel execution**: All checkers are spawned as independent threads. The first thread to find a hit sets a stop flag and returns the reason. Other threads observe the flag and exit without work (fail-fast).
+3. **Sequential execution**: Checkers run one by one in the order returned by `detect_checkers`. Execution stops at the first hit.
 
-See [[bash-tool]] for the full pipeline description, including segment types, checker selection, and parallel execution mechanics.
+See [[bash-tool]] for the full pipeline description, including segment types, checker selection, and sequential execution mechanics.
 
 ### Block Message
 
