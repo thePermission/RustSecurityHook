@@ -1,5 +1,6 @@
 use crate::{aliases, blacklist, forbid};
 use crate::shell;
+use crate::secrets;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -242,9 +243,37 @@ impl ToolChecker for FallbackChecker {
     }
 }
 
+pub struct SecretFileChecker;
+
+impl ToolChecker for SecretFileChecker {
+    fn bins(&self) -> Vec<String> {
+        vec![]
+    }
+
+    fn check(&self, content: &str) -> Option<Hit> {
+        let tokens = shell::tokenize(content);
+        for token in tokens.iter().skip(1) {
+            if token.starts_with('-') {
+                continue;
+            }
+            if let Some(h) = secrets::check_path(token) {
+                return Some(Hit {
+                    rule_id: h.id.to_string(),
+                    message: format!(
+                        "bash access to secret file (rule: {}): {}",
+                        h.id, h.reason
+                    ),
+                });
+            }
+        }
+        None
+    }
+}
+
 pub fn detect_checkers(content: &str) -> Vec<Box<dyn ToolChecker>> {
     let candidates: Vec<Box<dyn ToolChecker>> = vec![
         Box::new(FallbackChecker),
+        Box::new(SecretFileChecker),
         Box::new(KubectlChecker),
         Box::new(HelmChecker),
         Box::new(DockerChecker),
@@ -564,5 +593,60 @@ mod tests {
             path: "/nonexistent/script.sh".to_string(),
         }];
         assert!(run_parallel_checks(segs).is_none());
+    }
+
+    #[test]
+    fn secret_file_checker_blocks_cat_dotenv() {
+        use super::SecretFileChecker;
+        let hit = SecretFileChecker.check("cat /home/user/project/.env");
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("secret-dotenv"));
+    }
+
+    #[test]
+    fn secret_file_checker_blocks_cp_with_secret_arg() {
+        use super::SecretFileChecker;
+        let hit = SecretFileChecker.check("cp -r .env /tmp/backup");
+        assert!(hit.is_some());
+    }
+
+    #[test]
+    fn secret_file_checker_allows_normal_command() {
+        use super::SecretFileChecker;
+        assert!(SecretFileChecker.check("git status").is_none());
+        assert!(SecretFileChecker.check("echo hello").is_none());
+    }
+
+    #[test]
+    fn secret_file_checker_allows_flag_that_looks_like_path() {
+        use super::SecretFileChecker;
+        // flags starting with '-' are skipped even if they contain dots
+        // The real test is that flags starting with '-' don't cause false positives:
+        assert!(SecretFileChecker.check("ls -la").is_none());
+    }
+
+    #[test]
+    fn secret_file_checker_bins_is_empty() {
+        use super::SecretFileChecker;
+        assert!(SecretFileChecker.bins().is_empty());
+    }
+
+    #[test]
+    fn detect_checkers_always_includes_secret_file_checker() {
+        // SecretFileChecker has empty bins, so it always appears
+        let checkers = detect_checkers("ls -la");
+        let empty_bin_count = checkers.iter().filter(|c| c.bins().is_empty()).count();
+        // FallbackChecker + SecretFileChecker = 2 always-run checkers
+        assert!(empty_bin_count >= 2);
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_bash_cat_dotenv() {
+        let segs = vec![Segment::Direct {
+            command: "cat /home/user/.env".to_string(),
+        }];
+        let hit = run_parallel_checks(segs);
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("secret-dotenv"));
     }
 }
