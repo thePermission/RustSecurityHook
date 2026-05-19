@@ -4,6 +4,7 @@ pub mod checker;
 pub mod disabled;
 pub mod forbid;
 pub mod shell;
+pub mod secrets;
 
 use std::process::ExitCode;
 
