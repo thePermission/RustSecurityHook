@@ -353,11 +353,11 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "Deletes a CI/CD variable — often contains undocumented secrets",
     ),
     (
-        "glab-member-delete",
+        "glab-repo-members-remove",
         "GitLab CLI — Destructive",
         Some("glab"),
-        r"\s[^|;&\n]*?\bmember\s+delete\b",
-        "Removes a team member's access to the project",
+        r"\s[^|;&\n]*?\brepo\s+members\s+remove\b",
+        "Removes a project member's access — irreversible without re-invitation",
     ),
     (
         "glab-issue-delete",
@@ -372,13 +372,6 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         Some("glab"),
         r"\s[^|;&\n]*?\blabel\s+delete\b",
         "Permanently deletes a label from the project",
-    ),
-    (
-        "glab-protected-branch-delete",
-        "GitLab CLI — Destructive",
-        Some("glab"),
-        r"\s[^|;&\n]*?\bprotected-branch(?:es)?\s+delete\b",
-        "Removes branch protection rules — allows force-push and deletion of protected branches",
     ),
     // ---- rsh Self-Protection -------------------------------------------
     (
@@ -975,11 +968,12 @@ mod tests {
     }
 
     #[test]
-    fn blocks_glab_member_delete() {
-        assert!(blocks("glab member delete johndoe"));
-        assert!(blocks("glab member delete johndoe --yes"));
-        assert!(!blocks("glab member list"));
-        assert!(!blocks("glab member add johndoe --role=developer"));
+    fn blocks_glab_repo_members_remove() {
+        assert!(blocks("glab repo members remove --username=johndoe"));
+        assert!(blocks("glab repo members remove --user-id=123"));
+        assert!(!blocks("glab repo members list"));
+        assert!(!blocks("glab repo list"));
+        assert!(!blocks("glab repo members add --username=johndoe"));
     }
 
     #[test]
@@ -998,14 +992,6 @@ mod tests {
         assert!(blocks("glab label delete \"my label\""));
         assert!(!blocks("glab label list"));
         assert!(!blocks("glab label create bug --color=#FF0000"));
-    }
-
-    #[test]
-    fn blocks_glab_protected_branch_delete() {
-        assert!(blocks("glab protected-branch delete main"));
-        assert!(blocks("glab protected-branches delete main"));
-        assert!(!blocks("glab protected-branch list"));
-        assert!(!blocks("glab protected-branch create main"));
     }
 
     // ---- General negative ----
@@ -1109,10 +1095,9 @@ mod tests {
             "docker-volume-rm",
             "glab-issue-delete",
             "glab-label-delete",
-            "glab-member-delete",
-            "glab-protected-branch-delete",
             "glab-release-delete",
             "glab-repo-delete",
+            "glab-repo-members-remove",
             "glab-variable-delete",
             "helm-subprocess-list",
             "helm-uninstall",
