@@ -941,21 +941,31 @@ mod tests {
     /// Temporarily redirect XDG_CONFIG_HOME to an empty temp dir so tests that
     /// call `run_hook_from_str` are not affected by a real `~/.config/rsh/disabled`
     /// flag the developer may have set.
+    ///
+    /// # Thread safety
+    /// `set_var`/`remove_var` are process-wide. Tests using this helper must run
+    /// single-threaded (`cargo test -- --test-threads=1`) or be careful not to
+    /// run concurrently with other env-reading tests.
     struct IsolatedEnv {
         _dir: tempfile::TempDir,
+        prev: Option<std::ffi::OsString>,
     }
 
     impl IsolatedEnv {
         fn new() -> Self {
             let dir = tempfile::tempdir().unwrap();
+            let prev = std::env::var_os("XDG_CONFIG_HOME");
             unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
-            IsolatedEnv { _dir: dir }
+            IsolatedEnv { _dir: dir, prev }
         }
     }
 
     impl Drop for IsolatedEnv {
         fn drop(&mut self) {
-            unsafe { std::env::remove_var("XDG_CONFIG_HOME") };
+            match &self.prev {
+                Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v) },
+                None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
+            }
         }
     }
 
