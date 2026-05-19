@@ -181,6 +181,27 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         r#"\[['"]helm['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:uninstall|delete)['"]"#,
         "Helm uninstall/delete in a subprocess argument list — bypasses command-level pattern checks",
     ),
+    (
+        "glab-subprocess-list",
+        "GitLab CLI — Subprocess Bypass",
+        None,
+        r#"\[['"]glab['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]delete['"]"#,
+        "glab delete in a subprocess argument list — bypasses command-level pattern checks",
+    ),
+    (
+        "docker-subprocess-list",
+        "Docker — Subprocess Bypass",
+        None,
+        r#"\[['"]docker['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:rm|rmi|prune|down)['"]"#,
+        "Docker destructive command in a subprocess argument list — bypasses command-level pattern checks",
+    ),
+    (
+        "rsh-subprocess-list",
+        "rsh Self-Protection",
+        None,
+        r#"\[['"]rsh['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:off|on)['"]"#,
+        "rsh off/on in a subprocess argument list — bypasses command-level self-disable protection",
+    ),
     // ---- SQL — Destructive DML ------------------------------------
     // NOTE: These rules use `bin = None` so the SQL keyword check applies to any
     // Bash command regardless of the executing program. This intentionally blocks
@@ -329,6 +350,49 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         Some("docker-compose"),
         r"[^|;&\n]*?\sdown\b",
         "Stops and removes all service containers (volumes kept without -v)",
+    ),
+    // ---- GitLab CLI — Destructive -----------------------------------------
+    (
+        "glab-repo-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\b(?:repo|project)\s+delete\b",
+        "Deletes the entire GitLab repository/project — irreversible",
+    ),
+    (
+        "glab-release-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\brelease\s+delete\b",
+        "Deletes a published GitLab release",
+    ),
+    (
+        "glab-variable-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\bvariable\s+delete\b",
+        "Deletes a CI/CD variable — often contains undocumented secrets",
+    ),
+    (
+        "glab-repo-members-remove",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\brepo\s+members\s+remove\b",
+        "Removes a project member's access — irreversible without re-invitation",
+    ),
+    (
+        "glab-issue-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\bissue\s+delete\b",
+        "Hard-deletes an issue — distinct from closing, not recoverable",
+    ),
+    (
+        "glab-label-delete",
+        "GitLab CLI — Destructive",
+        Some("glab"),
+        r"\s[^|;&\n]*?\blabel\s+delete\b",
+        "Permanently deletes a label from the project",
     ),
     // ---- rsh Self-Protection -------------------------------------------
     (
@@ -894,6 +958,63 @@ mod tests {
         assert!(!blocks("docker-compose logs markdown-down"));
     }
 
+    // ---- GitLab CLI — Destructive ----
+
+    #[test]
+    fn blocks_glab_repo_delete() {
+        assert!(blocks("glab repo delete myproject"));
+        assert!(blocks("glab project delete myproject"));
+        assert!(blocks("glab --repo=owner/repo repo delete myproject"));
+        assert!(!blocks("glab repo list"));
+        assert!(!blocks("glab repo clone myproject"));
+        assert!(!blocks("glab repo create myproject"));
+    }
+
+    #[test]
+    fn blocks_glab_release_delete() {
+        assert!(blocks("glab release delete v1.0.0"));
+        assert!(blocks("glab release delete v1.0.0 --yes"));
+        assert!(!blocks("glab release list"));
+        assert!(!blocks("glab release create v2.0.0"));
+        assert!(!blocks("glab release view v1.0.0"));
+    }
+
+    #[test]
+    fn blocks_glab_variable_delete() {
+        assert!(blocks("glab variable delete MY_SECRET"));
+        assert!(blocks("glab variable delete MY_SECRET --scope project"));
+        assert!(!blocks("glab variable list"));
+        assert!(!blocks("glab variable get MY_SECRET"));
+        assert!(!blocks("glab variable set MY_VAR value"));
+    }
+
+    #[test]
+    fn blocks_glab_repo_members_remove() {
+        assert!(blocks("glab repo members remove --username=johndoe"));
+        assert!(blocks("glab repo members remove --user-id=123"));
+        assert!(!blocks("glab repo members list"));
+        assert!(!blocks("glab repo list"));
+        assert!(!blocks("glab repo members add --username=johndoe"));
+    }
+
+    #[test]
+    fn blocks_glab_issue_delete() {
+        assert!(blocks("glab issue delete 42"));
+        assert!(blocks("glab issue delete 42 --yes"));
+        assert!(!blocks("glab issue list"));
+        assert!(!blocks("glab issue close 42"));
+        assert!(!blocks("glab issue view 42"));
+        assert!(!blocks("glab issue create"));
+    }
+
+    #[test]
+    fn blocks_glab_label_delete() {
+        assert!(blocks("glab label delete bug"));
+        assert!(blocks("glab label delete \"my label\""));
+        assert!(!blocks("glab label list"));
+        assert!(!blocks("glab label create bug --color=#FF0000"));
+    }
+
     // ---- General negative ----
 
     #[test]
@@ -974,6 +1095,46 @@ mod tests {
     }
 
     #[test]
+    fn blocks_glab_delete_in_subprocess_list() {
+        assert!(blocks(
+            "subprocess.run(['glab', 'repo', 'delete', 'myproject'])"
+        ));
+        assert!(blocks(
+            "subprocess.run(['glab', 'release', 'delete', 'v1.0.0'])"
+        ));
+        assert!(blocks(
+            r#"subprocess.run(["glab", "variable", "delete", "MY_SECRET"])"#
+        ));
+        assert!(!blocks("subprocess.run(['glab', 'repo', 'list'])"));
+        assert!(!blocks("subprocess.run(['glab', 'issue', 'list'])"));
+    }
+
+    #[test]
+    fn blocks_docker_destructive_in_subprocess_list() {
+        assert!(blocks("subprocess.run(['docker', 'rm', 'mycontainer'])"));
+        assert!(blocks("subprocess.run(['docker', 'rmi', 'myimage'])"));
+        assert!(blocks(
+            "subprocess.run(['docker', 'volume', 'rm', 'mydata'])"
+        ));
+        assert!(blocks(
+            "subprocess.run(['docker', 'system', 'prune', '--volumes'])"
+        ));
+        assert!(blocks("subprocess.run(['docker', 'compose', 'down'])"));
+        assert!(!blocks("subprocess.run(['docker', 'ps'])"));
+        assert!(!blocks("subprocess.run(['docker', 'build', '-t', 'img', '.'])"));
+        assert!(!blocks("subprocess.run(['docker', 'run', 'myimage'])"));
+    }
+
+    #[test]
+    fn blocks_rsh_off_on_in_subprocess_list() {
+        assert!(blocks("subprocess.run(['rsh', 'off'])"));
+        assert!(blocks("subprocess.run(['rsh', 'on'])"));
+        assert!(blocks(r#"subprocess.run(["rsh", "off"])"#));
+        assert!(!blocks("subprocess.run(['rsh', 'list'])"));
+        assert!(!blocks("subprocess.run(['rsh', 'check', 'something'])"));
+    }
+
+    #[test]
     fn rule_ids_are_distinct_and_match_expected_set() {
         let mut ids: Vec<&str> = rules().iter().map(|r| r.id).collect();
         ids.sort();
@@ -990,9 +1151,17 @@ mod tests {
             "docker-rm",
             "docker-rm-volumes",
             "docker-rmi",
+            "docker-subprocess-list",
             "docker-system-prune-risky",
             "docker-volume-prune",
             "docker-volume-rm",
+            "glab-issue-delete",
+            "glab-label-delete",
+            "glab-release-delete",
+            "glab-repo-delete",
+            "glab-repo-members-remove",
+            "glab-subprocess-list",
+            "glab-variable-delete",
             "helm-subprocess-list",
             "helm-uninstall",
             "k8s-apply-remote",
@@ -1018,6 +1187,7 @@ mod tests {
             "rsh-protect-disable",
             "rsh-protect-forbid-remove",
             "rsh-self-disable",
+            "rsh-subprocess-list",
             "sql-alter-table",
             "sql-create-ddl",
             "sql-delete",

@@ -252,6 +252,21 @@ impl ToolChecker for DockerChecker {
     }
 }
 
+pub struct GlabChecker;
+
+impl ToolChecker for GlabChecker {
+    fn bins(&self) -> Vec<String> {
+        aliases::aliases_for(&aliases::ALIASES, "glab")
+    }
+
+    fn check(&self, content: &str) -> Option<Hit> {
+        blacklist::check_for_bin(content, Some("glab")).map(|h| Hit {
+            rule_id: h.id.to_string(),
+            message: format!("(rule: {}): {}", h.id, h.reason),
+        })
+    }
+}
+
 pub struct RshChecker;
 
 impl ToolChecker for RshChecker {
@@ -368,6 +383,7 @@ pub fn detect_checkers(content: &str) -> Vec<Box<dyn ToolChecker>> {
         Box::new(KubectlChecker),
         Box::new(HelmChecker),
         Box::new(DockerChecker),
+        Box::new(GlabChecker),
         Box::new(RshChecker),
     ];
     candidates
@@ -672,6 +688,52 @@ mod tests {
     #[test]
     fn docker_checker_bins_contains_docker() {
         assert!(DockerChecker.bins().iter().any(|b| b == "docker"));
+    }
+
+    #[test]
+    fn glab_checker_blocks_repo_delete() {
+        let hit = GlabChecker.check("glab repo delete myproject");
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("glab-repo-delete"));
+    }
+
+    #[test]
+    fn glab_checker_blocks_release_delete() {
+        let hit = GlabChecker.check("glab release delete v1.0.0");
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("glab-release-delete"));
+    }
+
+    #[test]
+    fn glab_checker_allows_safe_command() {
+        assert!(GlabChecker.check("glab repo list").is_none());
+        assert!(GlabChecker.check("glab issue view 42").is_none());
+        assert!(GlabChecker.check("glab mr list").is_none());
+    }
+
+    #[test]
+    fn glab_checker_bins_contains_glab() {
+        assert!(GlabChecker.bins().iter().any(|b| b == "glab"));
+    }
+
+    #[test]
+    fn detect_checkers_returns_glab_when_present() {
+        let checkers = detect_checkers("glab repo delete myproject");
+        assert!(
+            checkers
+                .iter()
+                .any(|c| c.bins().iter().any(|b| b == "glab"))
+        );
+    }
+
+    #[test]
+    fn detect_checkers_does_not_return_glab_for_helm_only() {
+        let checkers = detect_checkers("helm list");
+        assert!(
+            !checkers
+                .iter()
+                .any(|c| c.bins().iter().any(|b| b == "glab"))
+        );
     }
 
     #[test]
