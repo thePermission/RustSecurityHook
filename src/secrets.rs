@@ -129,7 +129,7 @@ const RAW_SECRET_RULES: &[SecretRule] = &[
     },
     SecretRule {
         id: "secret-shadow",
-        category: "Secret Files — Cloud",
+        category: "Secret Files — System",
         patterns: &["**/etc/shadow", "**/etc/master.passwd"],
         reason: "System password hash file",
     },
@@ -164,7 +164,8 @@ pub(crate) fn matches_glob(pattern: &str, path: &str) -> bool {
     }
 
     if let Some(stem) = tail.strip_suffix(".*") {
-        return basename.starts_with(&format!("{stem}."));
+        let prefix = format!("{stem}.");
+        return basename.starts_with(&prefix) && basename.len() > prefix.len();
     }
 
     basename == tail
@@ -282,7 +283,20 @@ mod tests {
 
     #[test]
     fn check_path_hit_for_pem() {
-        assert!(check_path("/etc/ssl/server.pem").is_some());
+        let hit = check_path("/etc/ssl/server.pem");
+        assert!(hit.is_some());
+        assert_eq!(hit.unwrap().id, "secret-pem");
+    }
+
+    #[test]
+    fn all_rules_count() {
+        assert_eq!(all_rules().len(), 20);
+    }
+
+    #[test]
+    fn glob_wildcard_suffix_no_match_on_trailing_dot_only() {
+        // ".env." has nothing after the dot — should not match **/.env.*
+        assert!(!matches_glob("**/.env.*", "/project/.env."));
     }
 
     #[test]
