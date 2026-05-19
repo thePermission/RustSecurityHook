@@ -298,8 +298,7 @@ fn list_rules() {
     print_section("SECRET FILE RULES");
     {
         let secret_rules = secrets::all_rules();
-        let mut by_category: std::collections::BTreeMap<&str, Vec<&secrets::SecretRule>> =
-            std::collections::BTreeMap::new();
+        let mut by_category: BTreeMap<&str, Vec<&secrets::SecretRule>> = BTreeMap::new();
         for r in secret_rules {
             by_category.entry(r.category).or_default().push(r);
         }
@@ -318,9 +317,9 @@ fn list_rules() {
                 } else {
                     println!("    • {}", r.id);
                 }
-                println!("        reason   : {}", r.reason);
+                println!("        reason  : {}", r.reason);
                 for p in r.patterns {
-                    println!("        pattern  : {p}");
+                    println!("        pattern : {p}");
                 }
                 println!();
             }
@@ -991,6 +990,10 @@ mod tests {
             unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
             IsolatedEnv { _dir: dir, prev }
         }
+
+        fn dir_path(&self) -> &std::path::Path {
+            self._dir.path()
+        }
     }
 
     impl Drop for IsolatedEnv {
@@ -1106,17 +1109,13 @@ mod tests {
 
     #[test]
     fn run_hook_passes_through_when_globally_disabled() {
-        let dir = tempfile::tempdir().unwrap();
-        unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
-        let flag = dir.path().join("rsh").join("disabled");
+        let env = IsolatedEnv::new();
+        let flag = env.dir_path().join("rsh").join("disabled");
         std::fs::create_dir_all(flag.parent().unwrap()).unwrap();
         std::fs::write(&flag, "").unwrap();
 
         let input = r#"{"tool_name":"Bash","tool_input":{"command":"kubectl delete ns prod"}}"#;
         let result = run_hook_from_str(input);
-
-        std::fs::remove_file(&flag).unwrap();
-        unsafe { std::env::remove_var("XDG_CONFIG_HOME") };
 
         assert_eq!(result, ExitCode::SUCCESS);
     }
