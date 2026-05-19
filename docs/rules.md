@@ -1,6 +1,8 @@
 # Blocked commands by tool
 
-`rsh` ships with 45 rules across twelve categories. The tables below list every rule grouped by the binary it targets. Aliases registered via `rsh alias` or detected by `rsh detect-aliases` are covered by the same rules.
+`rsh` ships with 45 blacklist rules across twelve categories plus 20 secret file rules across five categories. Run `rsh list` to see all active rules, disabled markers, and the current alias map.
+
+Aliases registered via `rsh alias` or detected by `rsh detect-aliases` are covered by all binary-bound blacklist rules.
 
 ## kubectl
 
@@ -78,3 +80,54 @@ These rules match SQL keywords regardless of which client (`psql`, `mysql`, `sql
 | `rsh-protect-forbid-remove` | `rsh forbid remove` | Removing forbid entries would re-allow forbidden clusters/namespaces |
 | `rsh-protect-config-access` | Any access to `~/.config/rsh/` | Protects aliases, disabled-rules, and forbid lists from tampering |
 | `rsh-guard-flag-file` | Any access to `.rsh-disabled` or `rsh/disabled` | Prevents renaming or deleting the flag files that control hook state |
+
+## Secret file rules
+
+These rules apply to `Read`, `Write`, and `Edit` tool calls (and `Bash` commands that reference a file path). They block access to files that commonly contain credentials or private keys regardless of the directory they live in. Symlinks are resolved before matching so a renamed symlink to `.env` is still caught.
+
+Individual rules can be disabled with `rsh rule disable <id>` (e.g. if you intentionally manage secrets files in your project).
+
+### Secret Files — Environment
+
+| Rule | Matched paths | Why |
+|---|---|---|
+| `secret-dotenv` | `**/.env`, `**/.env.*`, `**/*.env` | Environment file may contain API keys or passwords |
+| `secret-npmrc` | `**/.npmrc` | npm config may contain auth tokens for private registries |
+| `secret-pip-conf` | `**/pip.conf`, `**/.pip/pip.conf` | pip config may contain index URLs with embedded credentials |
+| `secret-git-credentials` | `**/.git-credentials` | Git credential helper plaintext store |
+| `secret-netrc` | `**/.netrc` | FTP/HTTP credentials |
+| `secret-htpasswd` | `**/.htpasswd` | Web server password hashes |
+| `secret-maven-settings` | `**/settings.xml` | Maven settings may contain Nexus/Artifactory repository credentials |
+
+### Secret Files — Cryptographic Keys
+
+| Rule | Matched paths | Why |
+|---|---|---|
+| `secret-pem` | `**/*.pem` | PEM file may contain TLS certificate or private key |
+| `secret-key-file` | `**/*.key` | Key file may contain a private cryptographic key |
+| `secret-p12` | `**/*.p12`, `**/*.pfx` | PKCS#12 key store containing private key and certificate chain |
+| `secret-pgp` | `**/*.gpg`, `**/*.asc` | PGP encrypted or signed file |
+| `secret-jks` | `**/*.jks`, `**/*.keystore` | Java key store containing private keys and certificates |
+
+### Secret Files — SSH
+
+| Rule | Matched paths | Why |
+|---|---|---|
+| `secret-ssh-private-key` | `**/id_rsa`, `**/id_ed25519`, `**/id_ecdsa`, `**/id_dsa` | SSH private key |
+| `secret-ssh-config` | `**/.ssh/config` | SSH config containing host and identity file paths |
+
+### Secret Files — Cloud
+
+| Rule | Matched paths | Why |
+|---|---|---|
+| `secret-aws-credentials` | `**/.aws/credentials` | AWS credentials file containing access key ID and secret |
+| `secret-gcloud-key` | `**/application_default_credentials.json` | GCP service account key |
+| `secret-kubeconfig` | `**/.kube/config` | Kubernetes config with cluster credentials and auth tokens |
+| `secret-docker-config` | `**/.docker/config.json` | Docker config with registry auth tokens |
+| `secret-vault-token` | `**/.vault-token` | HashiCorp Vault token |
+
+### Secret Files — System
+
+| Rule | Matched paths | Why |
+|---|---|---|
+| `secret-shadow` | `**/etc/shadow`, `**/etc/master.passwd` | System password hash file |

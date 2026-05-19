@@ -8,8 +8,8 @@ Out of the box, `rsh` covers:
 - **helm** — release uninstall/delete
 - **docker / docker-compose** — volume deletion, container and image cleanup
 - **SQL clients** (`psql`, `mysql`, `sqlite3`, …) — destructive DML and DDL keywords, matched against any binary
-- **Shell scripts** — when a command invokes a script (`bash script.sh`, `./deploy.sh`, `source file`, `bash ~/deploy.sh`, …), `rsh` reads and scans the script content before execution
-- **Secret files** — blocks `Read`, `Write`, `Edit`, and `Bash` access to files that commonly contain credentials or private keys (`.env`, `*.pem`, `id_rsa`, `.aws/credentials`, and 16 more)
+- **Shell scripts** — when a command invokes a script (`bash script.sh`, `./deploy.sh`, `source file`, `bash ~/deploy.sh`, `python deploy.py`, `node migrate.js`, …), `rsh` reads and scans the script content before execution. Supported interpreters: `bash`, `sh`, `zsh`, `ksh`, `dash`, `fish`, `python`, `python3`, `perl`, `ruby`, `node`, `nodejs`
+- **Secret files** — blocks `Read`, `Write`, `Edit`, and `Bash` access to files that commonly contain credentials or private keys (`.env`, `*.pem`, `id_rsa`, `.aws/credentials`, `.kube/config`, `.vault-token`, `*.key`, `*.p12`, `*.gpg`, `.netrc`, `.git-credentials`, `settings.xml`, and more — 20 rules total across environment, cryptographic keys, SSH, cloud, and system categories)
 
 See [`docs/rules.md`](docs/rules.md) for the full rule catalogue, or run `rsh list` to inspect active blacklist rules, secret file rules, forbid entries, and aliases at any time.
 
@@ -85,7 +85,7 @@ Auto-detection installs into every supported tool found on the machine:
 
 `init` is idempotent (running it multiple times never duplicates entries) and afterwards automatically scans your `$PATH` for known aliases of `kubectl` and other rule binaries.
 
-To remove the hook, delete the corresponding `PreToolUse` entry from the relevant config file.
+To temporarily disable all checks without modifying the config file, use `rsh off` / `rsh on`. To permanently remove the hook, delete the corresponding `PreToolUse` entry from the relevant config file.
 
 ## Usage
 
@@ -102,6 +102,18 @@ Exit codes (relevant when running as a hook):
 |------|---------------------------------------------------------------------|
 | `0`  | Command is allowed                                                  |
 | `2`  | Command is blocked; reason printed to stderr                        |
+
+## Self-protection
+
+`rsh` protects its own configuration from being tampered with by the model it is guarding:
+
+- **`rsh off` / `rsh on`** — agents cannot disable the hook; these commands are blocked by the `rsh-self-disable` rule.
+- **`rsh rule disable`** — agents cannot deactivate individual rules (`rsh-protect-disable`).
+- **`rsh forbid remove`** — agents cannot remove entries from the forbid list (`rsh-protect-forbid-remove`).
+- **`~/.config/rsh/` directory** — any `Bash` command that touches the config directory is blocked (`rsh-protect-config-access`).
+- **Flag files** — `.rsh-disabled` and `rsh/disabled` cannot be accessed or deleted by a running agent (`rsh-guard-flag-file`).
+
+`Write` and `Edit` access to any path inside `~/.config/rsh/` is also blocked at the tool level, independent of the blacklist rules.
 
 ## Development checks
 
@@ -127,6 +139,32 @@ rsh detect-aliases helm      # auto-scan for a specific command
 **Not detected:** wrapper scripts, shell aliases from `.bashrc`/`.zshrc` (which `bash -c` doesn't expand anyway), hardlinks, or renamed copies of the binary. Register those names manually with `rsh alias <cmd> <alias>` if you want them covered.
 
 Use `rsh list` at any time to see which aliases are baked into the rules.
+
+## Disabling individual rules
+
+If a rule blocks something you intentionally want to allow (e.g. `secret-maven-settings` in a project that manages its own `settings.xml`), you can disable just that rule:
+
+```sh
+rsh rule list                    # show all rules with [DISABLED] markers
+rsh rule disable secret-maven-settings   # disable a single rule by ID
+rsh rule enable  secret-maven-settings   # re-enable it
+```
+
+Disabled rule IDs are persisted in `~/.config/rsh/disabled-rules.json`. The change takes effect immediately for the next hook invocation. Note that agents are blocked from running `rsh rule disable` (the `rsh-protect-disable` self-protection rule prevents this).
+
+## Shell completion
+
+`rsh` can generate a tab-completion script for your shell:
+
+```sh
+rsh completions bash       >> ~/.bash_completion
+rsh completions zsh        >> ~/.zfunc/_rsh
+rsh completions fish       > ~/.config/fish/completions/rsh.fish
+rsh completions powershell >> $PROFILE
+rsh completions elvish     >> ~/.config/elvish/rc.elv
+```
+
+Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 
 ## Forbidden clusters, namespaces, and databases
 
