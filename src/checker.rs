@@ -253,10 +253,17 @@ impl ToolChecker for SecretFileChecker {
     fn check(&self, content: &str) -> Option<Hit> {
         let tokens = shell::tokenize(content);
         for token in tokens.iter().skip(1) {
-            if token.starts_with('-') {
-                continue;
-            }
-            if let Some(h) = secrets::check_path(token) {
+            let candidate = if token.starts_with('-') {
+                // --flag=VALUE: check the value portion
+                if let Some((_flag, val)) = token.split_once('=') {
+                    val
+                } else {
+                    continue;
+                }
+            } else {
+                token.as_str()
+            };
+            if let Some(h) = secrets::check_path(candidate) {
                 return Some(Hit {
                     rule_id: h.id.to_string(),
                     message: format!(
@@ -597,7 +604,6 @@ mod tests {
 
     #[test]
     fn secret_file_checker_blocks_cat_dotenv() {
-        use super::SecretFileChecker;
         let hit = SecretFileChecker.check("cat /home/user/project/.env");
         assert!(hit.is_some());
         assert!(hit.unwrap().rule_id.contains("secret-dotenv"));
@@ -605,29 +611,33 @@ mod tests {
 
     #[test]
     fn secret_file_checker_blocks_cp_with_secret_arg() {
-        use super::SecretFileChecker;
         let hit = SecretFileChecker.check("cp -r .env /tmp/backup");
         assert!(hit.is_some());
     }
 
     #[test]
     fn secret_file_checker_allows_normal_command() {
-        use super::SecretFileChecker;
         assert!(SecretFileChecker.check("git status").is_none());
         assert!(SecretFileChecker.check("echo hello").is_none());
     }
 
     #[test]
-    fn secret_file_checker_allows_flag_that_looks_like_path() {
-        use super::SecretFileChecker;
-        // flags starting with '-' are skipped even if they contain dots
-        // The real test is that flags starting with '-' don't cause false positives:
+    fn secret_file_checker_blocks_flag_equals_value_with_secret() {
+        // --flag=VALUE form: value portion must be checked even though token starts with '-'
+        let hit = SecretFileChecker.check("curl --key=/etc/ssl/server.pem");
+        assert!(hit.is_some());
+        assert!(hit.unwrap().rule_id.contains("secret-pem"));
+    }
+
+    #[test]
+    fn secret_file_checker_allows_bare_flag() {
+        // bare flags with no '=' should not cause false positives
         assert!(SecretFileChecker.check("ls -la").is_none());
+        assert!(SecretFileChecker.check("curl --verbose").is_none());
     }
 
     #[test]
     fn secret_file_checker_bins_is_empty() {
-        use super::SecretFileChecker;
         assert!(SecretFileChecker.bins().is_empty());
     }
 
