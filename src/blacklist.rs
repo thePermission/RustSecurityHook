@@ -181,6 +181,27 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         r#"\[['"]helm['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:uninstall|delete)['"]"#,
         "Helm uninstall/delete in a subprocess argument list — bypasses command-level pattern checks",
     ),
+    (
+        "glab-subprocess-list",
+        "GitLab CLI — Subprocess Bypass",
+        None,
+        r#"\[['"]glab['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]delete['"]"#,
+        "glab delete in a subprocess argument list — bypasses command-level pattern checks",
+    ),
+    (
+        "docker-subprocess-list",
+        "Docker — Subprocess Bypass",
+        None,
+        r#"\[['"]docker['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:rm|rmi|prune|down)['"]"#,
+        "Docker destructive command in a subprocess argument list — bypasses command-level pattern checks",
+    ),
+    (
+        "rsh-subprocess-list",
+        "rsh Self-Protection",
+        None,
+        r#"\[['"]rsh['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:off|on)['"]"#,
+        "rsh off/on in a subprocess argument list — bypasses command-level self-disable protection",
+    ),
     // ---- SQL — Destructive DML ------------------------------------
     // NOTE: These rules use `bin = None` so the SQL keyword check applies to any
     // Bash command regardless of the executing program. This intentionally blocks
@@ -1074,6 +1095,46 @@ mod tests {
     }
 
     #[test]
+    fn blocks_glab_delete_in_subprocess_list() {
+        assert!(blocks(
+            "subprocess.run(['glab', 'repo', 'delete', 'myproject'])"
+        ));
+        assert!(blocks(
+            "subprocess.run(['glab', 'release', 'delete', 'v1.0.0'])"
+        ));
+        assert!(blocks(
+            r#"subprocess.run(["glab", "variable", "delete", "MY_SECRET"])"#
+        ));
+        assert!(!blocks("subprocess.run(['glab', 'repo', 'list'])"));
+        assert!(!blocks("subprocess.run(['glab', 'issue', 'list'])"));
+    }
+
+    #[test]
+    fn blocks_docker_destructive_in_subprocess_list() {
+        assert!(blocks("subprocess.run(['docker', 'rm', 'mycontainer'])"));
+        assert!(blocks("subprocess.run(['docker', 'rmi', 'myimage'])"));
+        assert!(blocks(
+            "subprocess.run(['docker', 'volume', 'rm', 'mydata'])"
+        ));
+        assert!(blocks(
+            "subprocess.run(['docker', 'system', 'prune', '--volumes'])"
+        ));
+        assert!(blocks("subprocess.run(['docker', 'compose', 'down'])"));
+        assert!(!blocks("subprocess.run(['docker', 'ps'])"));
+        assert!(!blocks("subprocess.run(['docker', 'build', '-t', 'img', '.'])"));
+        assert!(!blocks("subprocess.run(['docker', 'run', 'myimage'])"));
+    }
+
+    #[test]
+    fn blocks_rsh_off_on_in_subprocess_list() {
+        assert!(blocks("subprocess.run(['rsh', 'off'])"));
+        assert!(blocks("subprocess.run(['rsh', 'on'])"));
+        assert!(blocks(r#"subprocess.run(["rsh", "off"])"#));
+        assert!(!blocks("subprocess.run(['rsh', 'list'])"));
+        assert!(!blocks("subprocess.run(['rsh', 'check', 'something'])"));
+    }
+
+    #[test]
     fn rule_ids_are_distinct_and_match_expected_set() {
         let mut ids: Vec<&str> = rules().iter().map(|r| r.id).collect();
         ids.sort();
@@ -1090,6 +1151,7 @@ mod tests {
             "docker-rm",
             "docker-rm-volumes",
             "docker-rmi",
+            "docker-subprocess-list",
             "docker-system-prune-risky",
             "docker-volume-prune",
             "docker-volume-rm",
@@ -1098,6 +1160,7 @@ mod tests {
             "glab-release-delete",
             "glab-repo-delete",
             "glab-repo-members-remove",
+            "glab-subprocess-list",
             "glab-variable-delete",
             "helm-subprocess-list",
             "helm-uninstall",
@@ -1124,6 +1187,7 @@ mod tests {
             "rsh-protect-disable",
             "rsh-protect-forbid-remove",
             "rsh-self-disable",
+            "rsh-subprocess-list",
             "sql-alter-table",
             "sql-create-ddl",
             "sql-delete",
