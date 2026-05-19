@@ -1121,7 +1121,9 @@ mod tests {
         ));
         assert!(blocks("subprocess.run(['docker', 'compose', 'down'])"));
         assert!(!blocks("subprocess.run(['docker', 'ps'])"));
-        assert!(!blocks("subprocess.run(['docker', 'build', '-t', 'img', '.'])"));
+        assert!(!blocks(
+            "subprocess.run(['docker', 'build', '-t', 'img', '.'])"
+        ));
         assert!(!blocks("subprocess.run(['docker', 'run', 'myimage'])"));
     }
 
