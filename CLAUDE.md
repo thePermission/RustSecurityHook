@@ -86,6 +86,7 @@ The binary dispatches on `argv[1]`:
 | `version`        | `--version` / `-V`               | Prints the Cargo package version.                                                                       |
 | `off`            | `rsh off [-g\|--global]`           | Creates a flag file (`.rsh-disabled` locally, `~/.config/rsh/disabled` globally) that causes the hook to exit 0 immediately, passing all tool calls through unchecked. |
 | `on`             | `rsh on [-g\|--global]`            | Removes the flag file created by `rsh off`. Prints "already enabled" if the flag is absent. Agents are blocked from running `rsh off`/`on` by the `rsh-self-disable` blacklist rule. |
+| `nopush`         | `rsh nopush [--off]`               | Creates/removes `.rsh-nopush` in CWD. When present, the hook blocks `git push`, `gh pr merge`, `glab mr merge`, and `glab mr create` with exit code 2. Also appends `.rsh-nopush` to `.gitignore` on enable. Agents cannot run `rsh nopush --off` (rule: `rsh-nopush-off`). |
 
 Hook input schema (PreToolUse event from Claude Code or Codex): JSON with at least `tool_name` (string) and `tool_input` (object). For `Bash` and Codex `apply_patch`, the command usually lives in `tool_input.command`; Codex command tools may also use `tool_input.cmd`. Claude `Write` uses `tool_input.content`; Claude `Edit` uses `tool_input.new_string`. For unrecognized tool names, or for empty/invalid stdin, `rsh` lets the call through (exit 0). This fail-open behavior is intentional — a crash in the hook must not lock up the whole session.
 
