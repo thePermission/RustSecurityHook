@@ -49,6 +49,8 @@ fn path_matches_protected_patterns(path: &str, configured: &[String]) -> bool {
         || p == ".config/rsh"
         || p.ends_with("/.rsh-disabled")
         || p == ".rsh-disabled"
+        || p.ends_with("/.rsh-nopush")
+        || p == ".rsh-nopush"
         || configured
             .iter()
             .any(|protected| is_same_or_child(&p, protected))
@@ -122,6 +124,14 @@ mod tests {
         assert!(is_protected_path("/project/.rsh-disabled"));
         assert!(!is_protected_path(".rsh-disabled-backup"));
         assert!(!is_protected_path("rsh-disabled"));
+    }
+
+    #[test]
+    fn protected_path_matches_local_rsh_nopush() {
+        assert!(is_protected_path(".rsh-nopush"));
+        assert!(is_protected_path("/project/.rsh-nopush"));
+        assert!(!is_protected_path(".rsh-nopush-backup"));
+        assert!(!is_protected_path("rsh-nopush"));
     }
 
     #[cfg(unix)]
