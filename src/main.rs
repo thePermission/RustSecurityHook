@@ -1,4 +1,4 @@
-use rsh::{aliases, blacklist, disabled, forbid, secrets};
+use rsh::{aliases, blacklist, disabled, forbid, nopush, secrets};
 use rsh::{is_protected_path, run_check, run_check_content};
 
 use anyhow::{Context, Result};
@@ -468,6 +468,11 @@ fn run_hook_from_str(input: &str) -> ExitCode {
     };
     if is_command_tool(&input.tool_name, &input.tool_input) {
         let command = extract_command(&input.tool_input);
+        if nopush::is_nopush_active() && nopush::is_push_command(command) {
+            eprintln!("rsh blocked push: this project is marked read-only (.rsh-nopush)");
+            eprintln!("hint: run 'rsh nopush --off' to re-enable pushing");
+            return ExitCode::from(2);
+        }
         return run_check(command);
     }
 
@@ -1319,5 +1324,55 @@ mod tests {
         let _env = IsolatedEnv::new();
         let input = r#"{"tool_name":"Edit","tool_input":{"file_path":"/home/user/id_rsa","new_string":"fake key"}}"#;
         assert_eq!(run_hook_from_str(input), ExitCode::from(2));
+    }
+
+    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn run_hook_blocks_git_push_when_nopush_active() {
+        let _env = IsolatedEnv::new();
+        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        std::fs::write(".rsh-nopush", "").unwrap();
+
+        let input = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}"#;
+        let result = run_hook_from_str(input);
+
+        std::env::set_current_dir(prev).unwrap();
+        assert_eq!(result, ExitCode::from(2));
+    }
+
+    #[test]
+    fn run_hook_allows_git_push_when_nopush_inactive() {
+        let _env = IsolatedEnv::new();
+        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        // no .rsh-nopush file
+
+        let input = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}"#;
+        let result = run_hook_from_str(input);
+
+        std::env::set_current_dir(prev).unwrap();
+        assert_eq!(result, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_hook_blocks_gh_pr_merge_when_nopush_active() {
+        let _env = IsolatedEnv::new();
+        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        std::fs::write(".rsh-nopush", "").unwrap();
+
+        let input = r#"{"tool_name":"Bash","tool_input":{"command":"gh pr merge 42 --squash"}}"#;
+        let result = run_hook_from_str(input);
+
+        std::env::set_current_dir(prev).unwrap();
+        assert_eq!(result, ExitCode::from(2));
     }
 }
