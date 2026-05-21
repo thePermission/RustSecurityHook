@@ -428,8 +428,15 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "rsh-guard-flag-file",
         "rsh Self-Protection",
         None,
-        r"(?:rsh/disabled|\.rsh-disabled)",
+        r"(?:rsh/disabled|\.rsh-(?:disabled|nopush))",
         "agents must not access or rename rsh flag files",
+    ),
+    (
+        "rsh-nopush-off",
+        "rsh Self-Protection",
+        Some("rsh"),
+        r"\s[^|;&\n]*?\bnopush\b[^|;&\n]*--off\b",
+        "agents must not re-enable pushing — would remove the read-only project protection",
     ),
 ];
 
@@ -1185,6 +1192,7 @@ mod tests {
             "k8s-run-privileged",
             "k8s-subprocess-list",
             "rsh-guard-flag-file",
+            "rsh-nopush-off",
             "rsh-protect-config-access",
             "rsh-protect-disable",
             "rsh-protect-forbid-remove",
@@ -1369,5 +1377,18 @@ mod tests {
     fn allows_commands_not_referencing_flag_files() {
         assert!(!blocks("ls ~/"));
         assert!(!blocks("cat ~/myfile.txt"));
+    }
+
+    #[test]
+    fn blocks_rsh_nopush_off() {
+        assert!(blocks("rsh nopush --off"));
+        assert_eq!(hit_id("rsh nopush --off"), Some("rsh-nopush-off"));
+    }
+
+    #[test]
+    fn blocks_flag_file_nopush_manipulation() {
+        assert!(blocks("rm .rsh-nopush"));
+        assert!(blocks("mv .rsh-nopush /tmp/bak"));
+        assert_eq!(hit_id("rm .rsh-nopush"), Some("rsh-guard-flag-file"));
     }
 }
