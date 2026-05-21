@@ -25,6 +25,8 @@ pub fn is_push_command(cmd: &str) -> bool {
 mod tests {
     use super::*;
 
+    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn flag_path_is_dot_rsh_nopush() {
         assert_eq!(flag_path(), PathBuf::from(".rsh-nopush"));
@@ -32,6 +34,7 @@ mod tests {
 
     #[test]
     fn is_nopush_active_false_when_no_flag() {
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
@@ -42,6 +45,7 @@ mod tests {
 
     #[test]
     fn is_nopush_active_true_when_flag_exists() {
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
