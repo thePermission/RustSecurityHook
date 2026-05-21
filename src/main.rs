@@ -61,6 +61,12 @@ enum Commands {
         #[command(subcommand)]
         action: ForbidAction,
     },
+    /// Block git push for this project (creates .rsh-nopush flag file)
+    Nopush {
+        /// Remove the no-push restriction (re-enable pushing)
+        #[arg(long)]
+        off: bool,
+    },
     /// Print shell completion script to stdout
     Completions {
         /// Target shell
@@ -242,6 +248,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Rule { action }) => run_rule(action),
         Some(Commands::Forbid { action }) => run_forbid(action),
+        Some(Commands::Nopush { off }) => run_nopush(off),
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(shell, &mut Cli::command(), "rsh", &mut std::io::stdout());
             ExitCode::SUCCESS
@@ -830,6 +837,56 @@ fn run_on(global: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn run_nopush(off: bool) -> ExitCode {
+    let flag = nopush::flag_path();
+    if off {
+        if !flag.exists() {
+            eprintln!("rsh: already enabled (push not blocked)");
+        } else {
+            if let Err(e) = std::fs::remove_file(&flag) {
+                eprintln!("rsh: failed to remove flag file: {e:#}");
+                return ExitCode::FAILURE;
+            }
+            eprintln!("rsh: push re-enabled — run 'rsh nopush' to block again");
+        }
+    } else {
+        if flag.exists() {
+            eprintln!("rsh: already blocked (push is read-only for this project)");
+        } else {
+            if let Err(e) = std::fs::write(&flag, "") {
+                eprintln!("rsh: failed to create flag file: {e:#}");
+                return ExitCode::FAILURE;
+            }
+            eprintln!("rsh: push blocked for this project — run 'rsh nopush --off' to re-enable");
+            if let Err(e) = add_to_gitignore() {
+                eprintln!("rsh: warning — could not update .gitignore: {e:#}");
+            }
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn add_to_gitignore() -> anyhow::Result<()> {
+    let gitignore = std::path::Path::new(".gitignore");
+    let entry = ".rsh-nopush";
+    if gitignore.exists() {
+        let content = std::fs::read_to_string(gitignore)?;
+        if content.lines().any(|l| l.trim() == entry) {
+            return Ok(());
+        }
+        let mut updated = content;
+        if !updated.ends_with('\n') {
+            updated.push('\n');
+        }
+        updated.push_str(entry);
+        updated.push('\n');
+        std::fs::write(gitignore, updated)?;
+    } else {
+        std::fs::write(gitignore, format!("{entry}\n"))?;
+    }
+    Ok(())
+}
+
 fn hook_command() -> String {
     // Prefer the bare name "rsh" when the binary is reachable via $PATH
     // (e.g. the user installed it through `cargo install --path .`).
@@ -1374,5 +1431,89 @@ mod tests {
 
         std::env::set_current_dir(prev).unwrap();
         assert_eq!(result, ExitCode::from(2));
+    }
+
+    #[test]
+    fn run_nopush_creates_flag_and_updates_gitignore() {
+        let _env = IsolatedEnv::new();
+        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+
+        let result = run_nopush(false);
+
+        let flag_exists = dir.path().join(".rsh-nopush").exists();
+        let gitignore = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap_or_default();
+        std::env::set_current_dir(prev).unwrap();
+
+        assert_eq!(result, ExitCode::SUCCESS);
+        assert!(flag_exists);
+        assert!(gitignore.contains(".rsh-nopush"));
+    }
+
+    #[test]
+    fn run_nopush_off_removes_flag() {
+        let _env = IsolatedEnv::new();
+        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        std::fs::write(".rsh-nopush", "").unwrap();
+
+        let result = run_nopush(true);
+
+        let flag_exists = dir.path().join(".rsh-nopush").exists();
+        std::env::set_current_dir(prev).unwrap();
+
+        assert_eq!(result, ExitCode::SUCCESS);
+        assert!(!flag_exists);
+    }
+
+    #[test]
+    fn run_nopush_idempotent_enable() {
+        let _env = IsolatedEnv::new();
+        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        std::fs::write(".rsh-nopush", "").unwrap();
+
+        let result = run_nopush(false);
+
+        std::env::set_current_dir(prev).unwrap();
+        assert_eq!(result, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_nopush_idempotent_disable() {
+        let _env = IsolatedEnv::new();
+        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        // no flag file
+
+        let result = run_nopush(true);
+
+        std::env::set_current_dir(prev).unwrap();
+        assert_eq!(result, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn add_to_gitignore_does_not_duplicate_entry() {
+        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        std::fs::write(".gitignore", ".rsh-nopush\n").unwrap();
+
+        add_to_gitignore().unwrap();
+
+        let content = std::fs::read_to_string(".gitignore").unwrap();
+        std::env::set_current_dir(prev).unwrap();
+
+        let count = content.lines().filter(|l| l.trim() == ".rsh-nopush").count();
+        assert_eq!(count, 1);
     }
 }
