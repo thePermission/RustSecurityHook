@@ -108,6 +108,7 @@ Exit codes (relevant when running as a hook):
 `rsh` protects its own configuration from being tampered with by the model it is guarding:
 
 - **`rsh off` / `rsh on`** — agents cannot disable the hook; these commands are blocked by the `rsh-self-disable` rule.
+- **`rsh nopush --off`** — agents cannot lift a per-project push lock; the `rsh-nopush-off` rule blocks this command.
 - **`rsh rule disable`** — agents cannot deactivate individual rules (`rsh-protect-disable`).
 - **`rsh forbid remove`** — agents cannot remove entries from the forbid list (`rsh-protect-forbid-remove`).
 - **`~/.config/rsh/` directory** — any `Bash` command that touches the config directory is blocked (`rsh-protect-config-access`).
@@ -151,6 +152,28 @@ rsh rule enable  secret-maven-settings   # re-enable it
 ```
 
 Disabled rule IDs are persisted in `~/.config/rsh/disabled-rules.json`. The change takes effect immediately for the next hook invocation. Note that agents are blocked from running `rsh rule disable` (the `rsh-protect-disable` self-protection rule prevents this).
+
+## Temporarily disabling the hook
+
+To disable all checks without modifying the hook configuration:
+
+```sh
+rsh off          # create a local flag file (.rsh-disabled)
+rsh off -g       # create a global flag file (~/.config/rsh/disabled)
+rsh on           # remove the local flag file
+rsh on -g        # remove the global flag file
+```
+
+Agents are blocked from running `rsh off` or `rsh on` by the `rsh-self-disable` rule.
+
+### `rsh nopush` — per-project push lock
+
+```sh
+rsh nopush          # mark this project read-only (creates .rsh-nopush)
+rsh nopush --off    # re-enable pushing (removes .rsh-nopush)
+```
+
+Blocks `git push` (all variants), `gh pr merge`, `glab mr merge`, and `glab mr create` for the current project. The flag file is automatically added to `.gitignore`. Agents cannot lift the lock themselves (`rsh-nopush-off` rule).
 
 ## Shell completion
 
@@ -204,6 +227,8 @@ rsh forbid ...               Manage forbidden clusters/namespaces/databases (see
 rsh completions <shell>      Print shell completion script to stdout (bash, zsh, fish, powershell, elvish)
 rsh off [-g|--global]        Disable all checks with a local or global flag file
 rsh on  [-g|--global]        Re-enable checks by removing the flag file
+rsh nopush                   Block git push and PR merge for this project (creates .rsh-nopush)
+rsh nopush --off             Remove the per-project push lock
 rsh help    (-h, --help)     Show help
 rsh --version (-V)           Show version
 ```
