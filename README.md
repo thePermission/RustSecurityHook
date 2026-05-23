@@ -4,10 +4,18 @@ A lean Claude Code and Codex `PreToolUse` hook. Before every protected tool call
 
 Out of the box, `rsh` covers:
 
-- **kubectl** — destructive deletes, pod access, privilege escalation, service disruption
+- **kubectl** — destructive deletes (namespace, secret, ingress, workloads, PV/PVC, nodes, RBAC), pod access, privilege escalation, service disruption
 - **helm** — release uninstall/delete
 - **docker / docker-compose** — volume deletion, container and image cleanup
-- **SQL clients** (`psql`, `mysql`, `sqlite3`, …) — destructive DML and DDL keywords, matched against any binary
+- **GitLab CLI (glab)** — repo/release/variable/issue delete, member removal
+- **GitHub CLI (gh)** — repo/release/secret/variable delete, auth logout
+- **Git** — force-push, `reset --hard`, `clean -f`, force branch delete
+- **Terraform** — destroy, workspace delete, force-unlock
+- **AWS CLI** — S3 recursive delete and bucket removal, EC2 terminate, RDS delete, CloudFormation stack delete, IAM entity delete
+- **System** — shutdown/reboot/halt/poweroff (direct and via systemctl), iptables flush, nft ruleset flush
+- **Redis** — `FLUSHALL`, `FLUSHDB` — matched against any binary
+- **Package publishing** — `npm unpublish`, `cargo yank`
+- **SQL clients** (`psql`, `mysql`, `sqlite3`, …) — destructive DML and DDL keywords (DELETE FROM, TRUNCATE, DROP, ALTER TABLE, DROP ROLE/USER, GRANT ALL, REVOKE ALL) — matched against any binary
 - **Shell scripts** — when a command invokes a script (`bash script.sh`, `./deploy.sh`, `source file`, `bash ~/deploy.sh`, `python deploy.py`, `node migrate.js`, …), `rsh` reads and scans the script content before execution. Supported interpreters: `bash`, `sh`, `zsh`, `ksh`, `dash`, `fish`, `python`, `python3`, `perl`, `ruby`, `node`, `nodejs`
 - **Secret files** — blocks `Read`, `Write`, `Edit`, and `Bash` access to files that commonly contain credentials or private keys (`.env`, `*.pem`, `id_rsa`, `.aws/credentials`, `.kube/config`, `.vault-token`, `*.key`, `*.p12`, `*.gpg`, `.netrc`, `.git-credentials`, `settings.xml`, and more — 20 rules total across environment, cryptographic keys, SSH, cloud, and system categories)
 
