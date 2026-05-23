@@ -201,12 +201,10 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 Beyond the regex blacklist, `rsh` can block any kubectl- or helm-aliased command that targets a forbidden cluster or namespace, and any supported SQL client command that targets a forbidden database host. This catches commands that aren't destructive on their own but should never run against a specific environment (e.g. anything against the production cluster or a production database).
 
 ```sh
-rsh forbid push                     # block git push for this project
 rsh forbid cluster prod-eu          # block commands hitting context "prod-eu"
 rsh forbid namespace kube-system    # block commands hitting namespace "kube-system"
 rsh forbid database prod-db.host    # block SQL clients targeting this host
 rsh forbid list                     # show current forbid lists
-rsh allow push                      # re-enable push for this project
 rsh allow cluster prod-eu           # remove a cluster from the forbid list
 rsh allow namespace kube-system     # remove a namespace from the forbid list
 rsh allow database prod-db.host     # remove a database from the forbid list
