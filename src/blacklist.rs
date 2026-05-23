@@ -235,8 +235,8 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "rsh-subprocess-list",
         "rsh Self-Protection",
         None,
-        r#"\[['"]rsh['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:off|on)['"]"#,
-        "rsh off/on in a subprocess argument list — bypasses command-level self-disable protection",
+        r#"\[['"]rsh['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:off|on|allow)['"]"#,
+        "rsh off/on/allow in a subprocess argument list — bypasses command-level self-disable protection",
     ),
     // ---- SQL — Destructive DML ------------------------------------
     // NOTE: These rules use `bin = None` so the SQL keyword check applies to any
@@ -679,11 +679,11 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "Prevents disabling blacklist rules — would allow previously blocked commands through",
     ),
     (
-        "rsh-protect-forbid-remove",
+        "rsh-protect-allow",
         "rsh Self-Protection",
         Some("rsh"),
-        r"\s[^|;&\n]*?\bforbid\s+remove\b",
-        "Prevents removing entries from the forbid list — would re-allow forbidden clusters/namespaces",
+        r"\s[^|;&\n]*?\ballow\s+(?:push|cluster|namespace|database)\b",
+        "Prevents lifting forbid/push restrictions — re-allowing targets would bypass user-set protections",
     ),
     (
         "rsh-protect-config-access",
@@ -706,13 +706,6 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         None,
         r"(?:rsh/disabled|\.rsh-(?:disabled|nopush))",
         "agents must not access or rename rsh flag files",
-    ),
-    (
-        "rsh-nopush-off",
-        "rsh Self-Protection",
-        Some("rsh"),
-        r"\s[^|;&\n]*?\bnopush\b[^|;&\n]*--off\b",
-        "agents must not re-enable pushing — would remove the read-only project protection",
     ),
 ];
 
@@ -1893,10 +1886,9 @@ mod tests {
             "redis-flushall",
             "redis-flushdb",
             "rsh-guard-flag-file",
-            "rsh-nopush-off",
+            "rsh-protect-allow",
             "rsh-protect-config-access",
             "rsh-protect-disable",
-            "rsh-protect-forbid-remove",
             "rsh-self-disable",
             "rsh-subprocess-list",
             "sql-alter-table",
@@ -1986,12 +1978,14 @@ mod tests {
     }
 
     #[test]
-    fn blocks_rsh_forbid_remove() {
-        assert!(blocks("rsh forbid remove cluster prod"));
-        assert!(blocks("rsh forbid remove namespace default"));
-        assert!(blocks("rsh forbid remove database db.example.com"));
-        // list and add must not be blocked
-        assert!(!blocks("rsh forbid list"));
+    fn blocks_rsh_allow() {
+        assert!(blocks("rsh allow push"));
+        assert!(blocks("rsh allow cluster prod"));
+        assert!(blocks("rsh allow namespace default"));
+        assert!(blocks("rsh allow database db.example.com"));
+        assert_eq!(hit_id("rsh allow push"), Some("rsh-protect-allow"));
+        assert_eq!(hit_id("rsh allow cluster prod"), Some("rsh-protect-allow"));
+        // forbid (adding) must not be blocked
         assert!(!blocks("rsh forbid cluster prod"));
         assert!(!blocks("rsh forbid namespace staging"));
     }
@@ -2089,12 +2083,6 @@ mod tests {
     fn allows_commands_not_referencing_flag_files() {
         assert!(!blocks("ls ~/"));
         assert!(!blocks("cat ~/myfile.txt"));
-    }
-
-    #[test]
-    fn blocks_rsh_nopush_off() {
-        assert!(blocks("rsh nopush --off"));
-        assert_eq!(hit_id("rsh nopush --off"), Some("rsh-nopush-off"));
     }
 
     #[test]

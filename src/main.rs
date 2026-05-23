@@ -37,7 +37,6 @@ enum Commands {
         command: String,
     },
     /// Show all configured rules, forbid lists, and aliases
-    #[command(alias = "rules")]
     List,
     /// Register a command alias
     Alias {
@@ -56,16 +55,15 @@ enum Commands {
         #[command(subcommand)]
         action: RuleAction,
     },
-    /// Manage forbidden clusters, namespaces, and databases
+    /// Block access to a cluster, namespace, database, or enable the push lock
     Forbid {
         #[command(subcommand)]
         action: ForbidAction,
     },
-    /// Block git push for this project (creates .rsh-nopush flag file)
-    Nopush {
-        /// Remove the no-push restriction (re-enable pushing)
-        #[arg(long)]
-        off: bool,
+    /// Lift a forbid restriction or the push lock
+    Allow {
+        #[command(subcommand)]
+        target: AllowTarget,
     },
     /// Print shell completion script to stdout
     Completions {
@@ -104,23 +102,22 @@ enum RuleAction {
 
 #[derive(Subcommand)]
 enum ForbidAction {
+    /// Block git push for this project (creates .rsh-nopush flag file)
+    Push,
     /// Add a forbidden kubectl context (cluster)
     Cluster { name: String },
     /// Add a forbidden Kubernetes namespace
     Namespace { name: String },
     /// Add a forbidden database hostname
     Database { hostname: String },
-    /// Remove an entry from the forbid list
-    Remove {
-        #[command(subcommand)]
-        target: ForbidRemoveTarget,
-    },
     /// Show all forbidden entries
     List,
 }
 
 #[derive(Subcommand)]
-enum ForbidRemoveTarget {
+enum AllowTarget {
+    /// Re-enable git push for this project (removes .rsh-nopush)
+    Push,
     /// Remove a forbidden cluster
     Cluster { name: String },
     /// Remove a forbidden namespace
@@ -248,7 +245,7 @@ fn main() -> ExitCode {
         }
         Some(Commands::Rule { action }) => run_rule(action),
         Some(Commands::Forbid { action }) => run_forbid(action),
-        Some(Commands::Nopush { off }) => run_nopush(off),
+        Some(Commands::Allow { target }) => run_allow(target),
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(shell, &mut Cli::command(), "rsh", &mut std::io::stdout());
             ExitCode::SUCCESS
@@ -346,7 +343,8 @@ fn list_rules() {
         println!();
     }
     if fcfg.is_empty() {
-        println!("  (none — register with `rsh forbid cluster <name>`,");
+        println!("  (none — register with `rsh forbid push`,");
+        println!("                       `rsh forbid cluster <name>`,");
         println!("                       `rsh forbid namespace <name>`, or");
         println!("                       `rsh forbid database <hostname>`)\n");
     } else {
@@ -401,6 +399,44 @@ fn list_rules() {
                 println!("      {connector} {a}");
             }
             println!();
+        }
+    }
+}
+
+fn list_rule_table() {
+    use std::collections::BTreeMap;
+
+    let rules = blacklist::rules();
+    let secret_rules = secrets::all_rules();
+    let disabled_set = disabled::load();
+
+    let mut by_category: BTreeMap<&str, Vec<&blacklist::Rule>> = BTreeMap::new();
+    for r in rules {
+        by_category.entry(r.category).or_default().push(r);
+    }
+    println!(
+        "{} blacklist rule(s) across {} categor{}:",
+        rules.len(),
+        by_category.len(),
+        if by_category.len() == 1 { "y" } else { "ies" }
+    );
+    for (cat, items) in &by_category {
+        println!("  ▌ {cat}");
+        for r in items {
+            if disabled_set.contains(r.id) {
+                println!("    • {}  [DISABLED]", r.id);
+            } else {
+                println!("    • {}", r.id);
+            }
+        }
+    }
+    println!();
+    println!("{} secret file rule(s):", secret_rules.len());
+    for r in secret_rules {
+        if disabled_set.contains(r.id) {
+            println!("  • {}  [DISABLED]  ({})", r.id, r.category);
+        } else {
+            println!("  • {}  ({})", r.id, r.category);
         }
     }
 }
@@ -477,7 +513,7 @@ fn run_hook_from_str(input: &str) -> ExitCode {
         let command = extract_command(&input.tool_input);
         if nopush::is_nopush_active() && nopush::is_push_command(command) {
             eprintln!("rsh blocked push: this project is marked read-only (.rsh-nopush)");
-            eprintln!("hint: run 'rsh nopush --off' to re-enable pushing");
+            eprintln!("hint: run 'rsh allow push' to re-enable pushing");
             return ExitCode::from(2);
         }
         return run_check(command);
@@ -624,7 +660,7 @@ fn run_rule(action: RuleAction) -> ExitCode {
             }
         }
         RuleAction::List => {
-            list_rules();
+            list_rule_table();
             ExitCode::SUCCESS
         }
     }
@@ -632,6 +668,22 @@ fn run_rule(action: RuleAction) -> ExitCode {
 
 fn run_forbid(action: ForbidAction) -> ExitCode {
     match action {
+        ForbidAction::Push => {
+            let flag = nopush::flag_path();
+            if flag.exists() {
+                eprintln!("rsh: already blocked (push is read-only for this project)");
+            } else {
+                if let Err(e) = std::fs::write(&flag, "") {
+                    eprintln!("rsh: failed to create flag file: {e:#}");
+                    return ExitCode::FAILURE;
+                }
+                eprintln!("rsh: push blocked for this project — run 'rsh allow push' to re-enable");
+                if let Err(e) = add_to_gitignore() {
+                    eprintln!("rsh: warning — could not update .gitignore: {e:#}");
+                }
+            }
+            ExitCode::SUCCESS
+        }
         ForbidAction::Cluster { name } => match forbid::add_cluster(&name) {
             Ok(true) => {
                 eprintln!("forbid: added cluster '{name}'");
@@ -673,50 +725,6 @@ fn run_forbid(action: ForbidAction) -> ExitCode {
                 eprintln!("forbid failed: {e:#}");
                 ExitCode::FAILURE
             }
-        },
-        ForbidAction::Remove { target } => match target {
-            ForbidRemoveTarget::Cluster { name } => match forbid::remove_cluster(&name) {
-                Ok(true) => {
-                    eprintln!("forbid: removed cluster '{name}'");
-                    ExitCode::SUCCESS
-                }
-                Ok(false) => {
-                    eprintln!("forbid: cluster '{name}' was not on the list");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("forbid failed: {e:#}");
-                    ExitCode::FAILURE
-                }
-            },
-            ForbidRemoveTarget::Namespace { name } => match forbid::remove_namespace(&name) {
-                Ok(true) => {
-                    eprintln!("forbid: removed namespace '{name}'");
-                    ExitCode::SUCCESS
-                }
-                Ok(false) => {
-                    eprintln!("forbid: namespace '{name}' was not on the list");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("forbid failed: {e:#}");
-                    ExitCode::FAILURE
-                }
-            },
-            ForbidRemoveTarget::Database { hostname } => match forbid::remove_database(&hostname) {
-                Ok(true) => {
-                    eprintln!("forbid: removed database '{hostname}'");
-                    ExitCode::SUCCESS
-                }
-                Ok(false) => {
-                    eprintln!("forbid: database '{hostname}' was not on the list");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("forbid failed: {e:#}");
-                    ExitCode::FAILURE
-                }
-            },
         },
         ForbidAction::List => {
             let cfg = forbid::load();
@@ -837,33 +845,64 @@ fn run_on(global: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run_nopush(off: bool) -> ExitCode {
-    let flag = nopush::flag_path();
-    if off {
-        if !flag.exists() {
-            eprintln!("rsh: already enabled (push not blocked)");
-        } else {
-            if let Err(e) = std::fs::remove_file(&flag) {
-                eprintln!("rsh: failed to remove flag file: {e:#}");
-                return ExitCode::FAILURE;
+fn run_allow(target: AllowTarget) -> ExitCode {
+    match target {
+        AllowTarget::Push => {
+            let flag = nopush::flag_path();
+            if !flag.exists() {
+                eprintln!("rsh: already enabled (push not blocked)");
+            } else {
+                if let Err(e) = std::fs::remove_file(&flag) {
+                    eprintln!("rsh: failed to remove flag file: {e:#}");
+                    return ExitCode::FAILURE;
+                }
+                eprintln!("rsh: push re-enabled — run 'rsh forbid push' to block again");
             }
-            eprintln!("rsh: push re-enabled — run 'rsh nopush' to block again");
+            ExitCode::SUCCESS
         }
-    } else {
-        if flag.exists() {
-            eprintln!("rsh: already blocked (push is read-only for this project)");
-        } else {
-            if let Err(e) = std::fs::write(&flag, "") {
-                eprintln!("rsh: failed to create flag file: {e:#}");
-                return ExitCode::FAILURE;
+        AllowTarget::Cluster { name } => match forbid::remove_cluster(&name) {
+            Ok(true) => {
+                eprintln!("allow: removed cluster '{name}'");
+                ExitCode::SUCCESS
             }
-            eprintln!("rsh: push blocked for this project — run 'rsh nopush --off' to re-enable");
-            if let Err(e) = add_to_gitignore() {
-                eprintln!("rsh: warning — could not update .gitignore: {e:#}");
+            Ok(false) => {
+                eprintln!("allow: cluster '{name}' was not on the forbid list");
+                ExitCode::SUCCESS
             }
-        }
+            Err(e) => {
+                eprintln!("allow failed: {e:#}");
+                ExitCode::FAILURE
+            }
+        },
+        AllowTarget::Namespace { name } => match forbid::remove_namespace(&name) {
+            Ok(true) => {
+                eprintln!("allow: removed namespace '{name}'");
+                ExitCode::SUCCESS
+            }
+            Ok(false) => {
+                eprintln!("allow: namespace '{name}' was not on the forbid list");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("allow failed: {e:#}");
+                ExitCode::FAILURE
+            }
+        },
+        AllowTarget::Database { hostname } => match forbid::remove_database(&hostname) {
+            Ok(true) => {
+                eprintln!("allow: removed database '{hostname}'");
+                ExitCode::SUCCESS
+            }
+            Ok(false) => {
+                eprintln!("allow: database '{hostname}' was not on the forbid list");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("allow failed: {e:#}");
+                ExitCode::FAILURE
+            }
+        },
     }
-    ExitCode::SUCCESS
 }
 
 fn add_to_gitignore() -> anyhow::Result<()> {
@@ -1434,14 +1473,14 @@ mod tests {
     }
 
     #[test]
-    fn run_nopush_creates_flag_and_updates_gitignore() {
+    fn forbid_push_creates_flag_and_updates_gitignore() {
         let _env = IsolatedEnv::new();
         let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
 
-        let result = run_nopush(false);
+        let result = run_forbid(ForbidAction::Push);
 
         let flag_exists = dir.path().join(".rsh-nopush").exists();
         let gitignore = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap_or_default();
@@ -1453,7 +1492,7 @@ mod tests {
     }
 
     #[test]
-    fn run_nopush_off_removes_flag() {
+    fn allow_push_removes_flag() {
         let _env = IsolatedEnv::new();
         let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
@@ -1461,7 +1500,7 @@ mod tests {
         std::env::set_current_dir(dir.path()).unwrap();
         std::fs::write(".rsh-nopush", "").unwrap();
 
-        let result = run_nopush(true);
+        let result = run_allow(AllowTarget::Push);
 
         let flag_exists = dir.path().join(".rsh-nopush").exists();
         std::env::set_current_dir(prev).unwrap();
@@ -1471,7 +1510,7 @@ mod tests {
     }
 
     #[test]
-    fn run_nopush_idempotent_enable() {
+    fn forbid_push_idempotent() {
         let _env = IsolatedEnv::new();
         let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
@@ -1479,14 +1518,14 @@ mod tests {
         std::env::set_current_dir(dir.path()).unwrap();
         std::fs::write(".rsh-nopush", "").unwrap();
 
-        let result = run_nopush(false);
+        let result = run_forbid(ForbidAction::Push);
 
         std::env::set_current_dir(prev).unwrap();
         assert_eq!(result, ExitCode::SUCCESS);
     }
 
     #[test]
-    fn run_nopush_idempotent_disable() {
+    fn allow_push_idempotent() {
         let _env = IsolatedEnv::new();
         let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
@@ -1494,7 +1533,7 @@ mod tests {
         std::env::set_current_dir(dir.path()).unwrap();
         // no flag file
 
-        let result = run_nopush(true);
+        let result = run_allow(AllowTarget::Push);
 
         std::env::set_current_dir(prev).unwrap();
         assert_eq!(result, ExitCode::SUCCESS);

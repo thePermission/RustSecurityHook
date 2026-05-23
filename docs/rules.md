@@ -165,11 +165,10 @@ These rules match SQL keywords regardless of which client (`psql`, `mysql`, `sql
 |---|---|---|
 | `rsh-self-disable` | `rsh off` / `rsh on` | Agents must not disable or re-enable the security hook |
 | `rsh-protect-disable` | `rsh rule disable` | Deactivating rules would allow previously blocked commands through |
-| `rsh-protect-forbid-remove` | `rsh forbid remove` | Removing forbid entries would re-allow forbidden clusters/namespaces |
+| `rsh-protect-allow` | `rsh allow push\|cluster\|namespace\|database` | Prevents lifting forbid/push restrictions — re-allowing targets would bypass user-set protections |
 | `rsh-protect-config-access` | Any access to `~/.config/rsh/` | Protects aliases, disabled-rules, and forbid lists from tampering |
 | `rsh-guard-flag-file` | Any access to `.rsh-disabled`, `rsh/disabled`, or `.rsh-nopush` | Prevents renaming or deleting the flag files that control hook state |
-| `rsh-nopush-off` | `rsh nopush --off` | Agents must not lift a per-project push lock |
-| `rsh-subprocess-list` | `['rsh', …, 'off'\|'on']` in script/file content | Prevents subprocess-based self-disable bypass |
+| `rsh-subprocess-list` | `['rsh', …, 'off'\|'on'\|'allow']` in script/file content | Prevents subprocess-based self-disable bypass |
 
 ## Secret file rules
 

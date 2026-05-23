@@ -116,9 +116,8 @@ Exit codes (relevant when running as a hook):
 `rsh` protects its own configuration from being tampered with by the model it is guarding:
 
 - **`rsh off` / `rsh on`** — agents cannot disable the hook; these commands are blocked by the `rsh-self-disable` rule.
-- **`rsh nopush --off`** — agents cannot lift a per-project push lock; the `rsh-nopush-off` rule blocks this command.
+- **`rsh allow push|cluster|namespace|database`** — agents cannot lift any forbid restriction or push lock; the `rsh-protect-allow` rule blocks the `allow` command.
 - **`rsh rule disable`** — agents cannot deactivate individual rules (`rsh-protect-disable`).
-- **`rsh forbid remove`** — agents cannot remove entries from the forbid list (`rsh-protect-forbid-remove`).
 - **`~/.config/rsh/` directory** — any `Bash` command that touches the config directory is blocked (`rsh-protect-config-access`).
 - **Flag files** — `.rsh-disabled` and `rsh/disabled` cannot be accessed or deleted by a running agent (`rsh-guard-flag-file`).
 
@@ -174,14 +173,14 @@ rsh on -g        # remove the global flag file
 
 Agents are blocked from running `rsh off` or `rsh on` by the `rsh-self-disable` rule.
 
-### `rsh nopush` — per-project push lock
+### `rsh forbid push` — per-project push lock
 
 ```sh
-rsh nopush          # mark this project read-only (creates .rsh-nopush)
-rsh nopush --off    # re-enable pushing (removes .rsh-nopush)
+rsh forbid push     # mark this project read-only (creates .rsh-nopush)
+rsh allow push      # re-enable pushing (removes .rsh-nopush)
 ```
 
-Blocks `git push` (all variants), `gh pr merge`, `glab mr merge`, and `glab mr create` for the current project. The flag file is automatically added to `.gitignore`. Agents cannot lift the lock themselves (`rsh-nopush-off` rule).
+Blocks `git push` (all variants), `gh pr merge`, `glab mr merge`, and `glab mr create` for the current project. The flag file is automatically added to `.gitignore`. Agents cannot lift the lock themselves (`rsh-protect-allow` rule).
 
 ## Shell completion
 
@@ -202,11 +201,15 @@ Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
 Beyond the regex blacklist, `rsh` can block any kubectl- or helm-aliased command that targets a forbidden cluster or namespace, and any supported SQL client command that targets a forbidden database host. This catches commands that aren't destructive on their own but should never run against a specific environment (e.g. anything against the production cluster or a production database).
 
 ```sh
+rsh forbid push                     # block git push for this project
 rsh forbid cluster prod-eu          # block commands hitting context "prod-eu"
 rsh forbid namespace kube-system    # block commands hitting namespace "kube-system"
 rsh forbid database prod-db.host    # block SQL clients targeting this host
 rsh forbid list                     # show current forbid lists
-rsh forbid remove cluster prod-eu   # remove an entry
+rsh allow push                      # re-enable push for this project
+rsh allow cluster prod-eu           # remove a cluster from the forbid list
+rsh allow namespace kube-system     # remove a namespace from the forbid list
+rsh allow database prod-db.host     # remove a database from the forbid list
 ```
 
 When a kubectl/helm command runs, `rsh` first identifies the actual tool token, skipping supported wrapper commands such as `sudo`, `env`, `time`, `nice`, and `stdbuf`. Flags belonging to the wrapper are ignored; only arguments after the kubectl/helm token are considered. Then `rsh` checks:
@@ -231,12 +234,16 @@ rsh alias <cmd> <alias>      Register an alias
 rsh detect-aliases [cmd]     Auto-detect aliases
 rsh rule disable|enable <id> Disable or re-enable an individual rule
 rsh rule list                Show rules with disabled markers
-rsh forbid ...               Manage forbidden clusters/namespaces/databases (see above)
+rsh forbid push              Block git push and PR merge for this project (creates .rsh-nopush)
+rsh forbid cluster|namespace|database <name>
+                             Block commands targeting a specific cluster, namespace, or database
+rsh forbid list              Show all forbidden entries
+rsh allow push               Re-enable git push for this project (removes .rsh-nopush)
+rsh allow cluster|namespace|database <name>
+                             Remove a cluster, namespace, or database from the forbid list
 rsh completions <shell>      Print shell completion script to stdout (bash, zsh, fish, powershell, elvish)
 rsh off [-g|--global]        Disable all checks with a local or global flag file
 rsh on  [-g|--global]        Re-enable checks by removing the flag file
-rsh nopush                   Block git push and PR merge for this project (creates .rsh-nopush)
-rsh nopush --off             Remove the per-project push lock
 rsh help    (-h, --help)     Show help
 rsh --version (-V)           Show version
 ```
