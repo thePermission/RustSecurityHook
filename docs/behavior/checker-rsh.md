@@ -19,7 +19,7 @@ The checker runs only the **regex blacklist pipeline** — no forbid checks.
 | ID | Blocked command | Reason |
 |---|---|---|
 | `rsh-protect-disable` | `rsh rule disable <id>` | Prevents rsh from being neutered via the Bash tool |
-| `rsh-protect-forbid-remove` | `rsh forbid remove <type> <name>` | Prevents removing a forbid entry via the Bash tool |
+| `rsh-protect-allow` | `rsh allow <type> <name>` | Prevents removing a forbid entry or push protection via the Bash tool |
 | `rsh-protect-config-access` | Any Bash command targeting `.config/rsh` | Prevents direct config file manipulation |
 | `rsh-self-disable` | `rsh off` / `rsh on` | Prevents agents from disabling or re-enabling the whole hook |
 | `rsh-guard-flag-file` | Any Bash command targeting `.rsh-disabled` or `rsh/disabled` | Protects the local and global disable flag files |

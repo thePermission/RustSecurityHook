@@ -81,7 +81,7 @@ Stored in `~/.config/rsh/forbidden.json` (or platform-equivalent via `aliases::h
 | Command | Effect |
 |---|---|
 | `rsh forbid database <host>` | Adds a forbidden database host |
-| `rsh forbid remove database <host>` | Removes a host from the forbid list |
+| `rsh allow database <host>` | Removes a host from the forbid list |
 | `rsh forbid list` | Shows all forbidden clusters, namespaces, and databases |
 
 ### Examples

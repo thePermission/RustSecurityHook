@@ -42,12 +42,12 @@ If the file exists but cannot be read or parsed, rsh treats the forbid configura
 # Kubernetes / Helm
 rsh forbid cluster <context-name>
 rsh forbid namespace <namespace-name>
-rsh forbid remove cluster <context-name>
-rsh forbid remove namespace <namespace-name>
+rsh allow cluster <context-name>
+rsh allow namespace <namespace-name>
 
 # SQL
 rsh forbid database <hostname>
-rsh forbid remove database <hostname>
+rsh allow database <hostname>
 
 # Inspect
 rsh forbid list

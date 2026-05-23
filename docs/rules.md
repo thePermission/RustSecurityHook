@@ -1,6 +1,6 @@
 # Blocked commands by tool
 
-`rsh` ships with 93 blacklist rules across 13 categories plus 20 secret file rules across five categories. Run `rsh list` to see all active rules, disabled markers, and the current alias map.
+`rsh` ships with 92 blacklist rules across 28 categories plus 20 secret file rules across five categories. Run `rsh list` to see all active rules, disabled markers, and the current alias map.
 
 Aliases registered via `rsh alias` or detected by `rsh detect-aliases` are covered by all binary-bound blacklist rules.
 

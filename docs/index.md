@@ -114,5 +114,5 @@ rsh forbid cluster prod-eu         # forbid a cluster
 rsh forbid namespace kube-system   # forbid a namespace
 rsh forbid database prod-db.host   # forbid a database host
 rsh forbid list                    # show all forbid entries
-rsh forbid remove cluster prod-eu  # remove an entry
+rsh allow cluster prod-eu          # remove an entry
 ```
