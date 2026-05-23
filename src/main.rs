@@ -1431,12 +1431,10 @@ mod tests {
         assert_eq!(run_hook_from_str(input), ExitCode::from(2));
     }
 
-    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn run_hook_blocks_git_push_when_nopush_active() {
         let _env = IsolatedEnv::new();
-        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
@@ -1452,7 +1450,6 @@ mod tests {
     #[test]
     fn run_hook_allows_git_push_when_nopush_inactive() {
         let _env = IsolatedEnv::new();
-        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
@@ -1468,7 +1465,6 @@ mod tests {
     #[test]
     fn run_hook_blocks_gh_pr_merge_when_nopush_active() {
         let _env = IsolatedEnv::new();
-        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
@@ -1484,7 +1480,6 @@ mod tests {
     #[test]
     fn forbid_push_creates_flag_and_updates_gitignore() {
         let _env = IsolatedEnv::new();
-        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
@@ -1503,7 +1498,6 @@ mod tests {
     #[test]
     fn allow_push_removes_flag() {
         let _env = IsolatedEnv::new();
-        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
@@ -1521,7 +1515,6 @@ mod tests {
     #[test]
     fn forbid_push_idempotent() {
         let _env = IsolatedEnv::new();
-        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
@@ -1536,7 +1529,6 @@ mod tests {
     #[test]
     fn allow_push_idempotent() {
         let _env = IsolatedEnv::new();
-        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
@@ -1550,7 +1542,9 @@ mod tests {
 
     #[test]
     fn add_to_gitignore_does_not_duplicate_entry() {
-        let _cwd = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // IsolatedEnv serialises CWD + XDG_CONFIG_HOME; the test then switches
+        // into its own subdirectory so .gitignore is written there.
+        let _env = IsolatedEnv::new();
         let dir = tempfile::tempdir().unwrap();
         let prev = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();

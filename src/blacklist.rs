@@ -207,35 +207,35 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "k8s-subprocess-list",
         "Kubernetes — Subprocess Bypass",
         None,
-        r#"\[['"]kubectl['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]delete['"]"#,
+        r#"\[['"](?:[^'"]*\/)?kubectl['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]delete['"]"#,
         "Kubectl delete in a subprocess argument list — bypasses command-level pattern checks",
     ),
     (
         "helm-subprocess-list",
         "Helm — Subprocess Bypass",
         None,
-        r#"\[['"]helm['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:uninstall|delete)['"]"#,
+        r#"\[['"](?:[^'"]*\/)?helm['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:uninstall|delete)['"]"#,
         "Helm uninstall/delete in a subprocess argument list — bypasses command-level pattern checks",
     ),
     (
         "glab-subprocess-list",
         "GitLab CLI — Subprocess Bypass",
         None,
-        r#"\[['"]glab['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]delete['"]"#,
+        r#"\[['"](?:[^'"]*\/)?glab['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]delete['"]"#,
         "glab delete in a subprocess argument list — bypasses command-level pattern checks",
     ),
     (
         "docker-subprocess-list",
         "Docker — Subprocess Bypass",
         None,
-        r#"\[['"]docker['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:rm|rmi|prune|down)['"]"#,
+        r#"\[['"](?:[^'"]*\/)?docker['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:rm|rmi|prune|down)['"]"#,
         "Docker destructive command in a subprocess argument list — bypasses command-level pattern checks",
     ),
     (
         "rsh-subprocess-list",
         "rsh Self-Protection",
         None,
-        r#"\[['"]rsh['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:off|on|allow)['"]"#,
+        r#"\[['"](?:[^'"]*\/)?rsh['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:off|on|allow)['"]"#,
         "rsh off/on/allow in a subprocess argument list — bypasses command-level self-disable protection",
     ),
     // ---- SQL — Destructive DML ------------------------------------
@@ -587,7 +587,7 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "sys-shutdown-direct",
         "System — Shutdown",
         None,
-        r"(?:^|\bsudo\s+)(?:shutdown|poweroff|halt|reboot)\b",
+        r"(?:^|\bsudo\b[^|;&\n]*?\s)(?:[^\s|;&\n]*/)?(?:shutdown|poweroff|halt|reboot)\b",
         "Shuts down or reboots the system — terminates the agent session and all running services",
     ),
     (
@@ -646,28 +646,28 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "git-subprocess-list",
         "Git — Subprocess Bypass",
         None,
-        r#"\[['"]git['"]\s*,\s*['"]push['"](?:\s*,\s*['"][^'"]*['"]\s*)*,\s*['"](?:--force|-f|--force-with-lease)['"]"#,
+        r#"\[['"](?:[^'"]*\/)?git['"]\s*,\s*['"]push['"](?:\s*,\s*['"][^'"]*['"]\s*)*,\s*['"](?:--force|-f|--force-with-lease)['"]"#,
         "git force-push in a subprocess argument list — bypasses command-level pattern checks",
     ),
     (
         "gh-subprocess-list",
         "GitHub CLI — Subprocess Bypass",
         None,
-        r#"\[['"]gh['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]delete['"]"#,
+        r#"\[['"](?:[^'"]*\/)?gh['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]delete['"]"#,
         "gh delete in a subprocess argument list — bypasses command-level pattern checks",
     ),
     (
         "terraform-subprocess-list",
         "Terraform — Subprocess Bypass",
         None,
-        r#"\[['"]terraform['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]destroy['"]"#,
+        r#"\[['"](?:[^'"]*\/)?terraform['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"]destroy['"]"#,
         "terraform destroy in a subprocess argument list — bypasses command-level pattern checks",
     ),
     (
         "aws-subprocess-list",
         "AWS — Subprocess Bypass",
         None,
-        r#"\[['"]aws['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:terminate-instances|delete-db-instance|delete-stack|delete-user|delete-role|delete-policy|rb)['"]"#,
+        r#"\[['"](?:[^'"]*\/)?aws['"]\s*(?:,\s*['"][^'"]*['"]\s*)*,\s*['"](?:terminate-instances|delete-db-instance|delete-stack|delete-user|delete-role|delete-policy|rb)['"]"#,
         "AWS destructive command in a subprocess argument list — bypasses command-level pattern checks",
     ),
     // ---- rsh Self-Protection -------------------------------------------
@@ -1557,6 +1557,15 @@ mod tests {
         assert!(blocks("halt"));
         assert!(blocks("poweroff"));
         assert!(blocks("sudo poweroff"));
+        // path-qualified binaries
+        assert!(blocks("/sbin/shutdown now"));
+        assert!(blocks("/usr/sbin/reboot"));
+        assert!(blocks("/usr/sbin/poweroff"));
+        assert!(blocks("/usr/sbin/halt"));
+        // sudo with flags before the command
+        assert!(blocks("sudo -n shutdown now"));
+        assert!(blocks("sudo -n /sbin/shutdown now"));
+        assert!(blocks("sudo /usr/sbin/reboot"));
     }
 
     #[test]
@@ -1697,6 +1706,30 @@ mod tests {
         ));
         assert!(!blocks("subprocess.run(['aws', 'ec2', 'describe-instances'])"));
         assert!(!blocks("subprocess.run(['aws', 's3', 'ls', 's3://mybucket'])"));
+    }
+
+    #[test]
+    fn blocks_subprocess_list_with_absolute_binary_path() {
+        // absolute path for kubectl
+        assert!(blocks(
+            "subprocess.run(['/usr/bin/kubectl', 'delete', 'ns', 'prod'])"
+        ));
+        // absolute path for git
+        assert!(blocks(
+            "subprocess.run(['/usr/bin/git', 'push', '--force'])"
+        ));
+        // absolute path for gh
+        assert!(blocks(
+            "subprocess.run(['/usr/local/bin/gh', 'repo', 'delete', 'myorg/myrepo'])"
+        ));
+        // absolute path for terraform
+        assert!(blocks(
+            "subprocess.run(['/usr/local/bin/terraform', 'destroy'])"
+        ));
+        // absolute path for aws
+        assert!(blocks(
+            "subprocess.run(['/usr/bin/aws', 'ec2', 'terminate-instances', '--instance-ids', 'i-abc'])"
+        ));
     }
 
     // ---- General negative ----

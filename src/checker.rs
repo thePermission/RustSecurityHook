@@ -73,11 +73,10 @@ fn extract_script_path(cmd: &str) -> Option<String> {
         return tokens.get(1).cloned();
     }
 
-    if first.starts_with("./")
-        || first.starts_with('/')
-        || first.ends_with(".sh")
-        || first.ends_with(".bash")
-    {
+    const SCRIPT_EXTS: &[&str] = &[
+        ".sh", ".bash", ".zsh", ".ksh", ".fish", ".py", ".pl", ".rb", ".js",
+    ];
+    if first.starts_with("./") || SCRIPT_EXTS.iter().any(|ext| first.ends_with(ext)) {
         return Some(first.clone());
     }
 
@@ -1027,6 +1026,38 @@ mod tests {
     }
 
     #[test]
+    fn split_absolute_binary_is_direct_not_script() {
+        // /sbin/shutdown must NOT be treated as a Script segment — it's a binary
+        assert_eq!(
+            split_segments("/sbin/shutdown now"),
+            vec![direct("/sbin/shutdown now")]
+        );
+    }
+
+    #[test]
+    fn split_absolute_script_with_extension_is_still_script() {
+        // /home/user/deploy.sh has a .sh extension → still a Script segment
+        assert_eq!(
+            split_segments("/home/user/deploy.sh"),
+            vec![script("/home/user/deploy.sh")]
+        );
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_sbin_shutdown() {
+        let hit = run_parallel_checks(split_segments("/sbin/shutdown now"));
+        assert!(hit.is_some(), "/sbin/shutdown now must be blocked");
+        assert_eq!(hit.unwrap().rule_id, "sys-shutdown-direct");
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_sudo_sbin_shutdown() {
+        let hit = run_parallel_checks(split_segments("sudo /sbin/shutdown -r now"));
+        assert!(hit.is_some(), "sudo /sbin/shutdown must be blocked");
+        assert_eq!(hit.unwrap().rule_id, "sys-shutdown-direct");
+    }
+
+    #[test]
     fn run_parallel_checks_allows_safe_git_push() {
         let hit = run_parallel_checks(split_segments("git push origin main"));
         assert!(hit.is_none(), "safe git push must be allowed");
@@ -1036,5 +1067,30 @@ mod tests {
     fn run_parallel_checks_allows_safe_gh_command() {
         let hit = run_parallel_checks(split_segments("gh pr list"));
         assert!(hit.is_none());
+    }
+
+    // ---- Coverage invariant ----
+
+    #[test]
+    fn all_raw_rules_bins_are_reachable_via_detect_checkers() {
+        use std::collections::HashSet;
+
+        // Collect every canonical bin that appears in RAW_RULES
+        let rule_bins: HashSet<&str> = blacklist::rules()
+            .iter()
+            .filter_map(|r| r.bin)
+            .collect();
+
+        for bin in &rule_bins {
+            // detect_checkers filters by content; a content that contains the bin
+            // name passes the filter for any checker advertising that bin.
+            let checkers = detect_checkers(bin);
+            let covered = checkers.iter().any(|c| c.bins().iter().any(|b| b == bin));
+            assert!(
+                covered,
+                "bin '{bin}' has rules in RAW_RULES but no checker in detect_checkers — \
+                 add GenericBinChecker {{ bin: \"{bin}\" }} to the candidates list"
+            );
+        }
     }
 }
