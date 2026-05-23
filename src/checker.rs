@@ -282,6 +282,25 @@ impl ToolChecker for RshChecker {
     }
 }
 
+/// Generic checker for any binary that has bin-bound rules in RAW_RULES but no
+/// dedicated checker struct. Instantiated once per missing binary in `detect_checkers`.
+pub struct GenericBinChecker {
+    bin: &'static str,
+}
+
+impl ToolChecker for GenericBinChecker {
+    fn bins(&self) -> Vec<String> {
+        aliases::aliases_for(&aliases::ALIASES, self.bin)
+    }
+
+    fn check(&self, content: &str) -> Option<Hit> {
+        blacklist::check_for_bin(content, Some(self.bin)).map(|h| Hit {
+            rule_id: h.id.to_string(),
+            message: format!("(rule: {}): {}", h.id, h.reason),
+        })
+    }
+}
+
 pub struct FallbackChecker;
 
 impl ToolChecker for FallbackChecker {
@@ -385,6 +404,14 @@ pub fn detect_checkers(content: &str) -> Vec<Box<dyn ToolChecker>> {
         Box::new(DockerChecker),
         Box::new(GlabChecker),
         Box::new(RshChecker),
+        Box::new(GenericBinChecker { bin: "git" }),
+        Box::new(GenericBinChecker { bin: "gh" }),
+        Box::new(GenericBinChecker { bin: "terraform" }),
+        Box::new(GenericBinChecker { bin: "aws" }),
+        Box::new(GenericBinChecker { bin: "npm" }),
+        Box::new(GenericBinChecker { bin: "cargo" }),
+        Box::new(GenericBinChecker { bin: "systemctl" }),
+        Box::new(GenericBinChecker { bin: "nft" }),
     ];
     candidates
         .into_iter()
@@ -930,5 +957,84 @@ mod tests {
     fn secret_file_checker_does_not_block_plain_command_name() {
         // First token with no `=` is a command name — should be skipped
         assert!(SecretFileChecker.check("env FOO=bar ls").is_none());
+    }
+
+    // ---- GenericBinChecker / detect_checkers end-to-end -------------------
+
+    #[test]
+    fn run_parallel_checks_blocks_git_force_push() {
+        let hit = run_parallel_checks(split_segments("git push --force origin main"));
+        assert!(hit.is_some(), "git force-push must be blocked");
+        assert_eq!(hit.unwrap().rule_id, "git-force-push");
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_git_reset_hard() {
+        let hit = run_parallel_checks(split_segments("git reset --hard HEAD~1"));
+        assert!(hit.is_some());
+        assert_eq!(hit.unwrap().rule_id, "git-reset-hard");
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_gh_repo_delete() {
+        let hit = run_parallel_checks(split_segments("gh repo delete myorg/myrepo --yes"));
+        assert!(hit.is_some(), "gh repo delete must be blocked");
+        assert_eq!(hit.unwrap().rule_id, "gh-repo-delete");
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_terraform_destroy() {
+        let hit = run_parallel_checks(split_segments("terraform destroy -auto-approve"));
+        assert!(hit.is_some(), "terraform destroy must be blocked");
+        assert_eq!(hit.unwrap().rule_id, "tf-destroy");
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_aws_ec2_terminate() {
+        let hit = run_parallel_checks(split_segments(
+            "aws ec2 terminate-instances --instance-ids i-1234567890abcdef0",
+        ));
+        assert!(hit.is_some(), "aws ec2 terminate-instances must be blocked");
+        assert_eq!(hit.unwrap().rule_id, "aws-ec2-terminate");
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_npm_unpublish() {
+        let hit = run_parallel_checks(split_segments("npm unpublish mypackage@1.0.0"));
+        assert!(hit.is_some(), "npm unpublish must be blocked");
+        assert_eq!(hit.unwrap().rule_id, "npm-unpublish");
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_cargo_yank() {
+        let hit = run_parallel_checks(split_segments("cargo yank --version 1.0.0 mycrate"));
+        assert!(hit.is_some(), "cargo yank must be blocked");
+        assert_eq!(hit.unwrap().rule_id, "cargo-yank");
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_systemctl_poweroff() {
+        let hit = run_parallel_checks(split_segments("systemctl poweroff"));
+        assert!(hit.is_some(), "systemctl poweroff must be blocked");
+        assert_eq!(hit.unwrap().rule_id, "sys-shutdown-systemctl");
+    }
+
+    #[test]
+    fn run_parallel_checks_blocks_nft_flush_ruleset() {
+        let hit = run_parallel_checks(split_segments("nft flush ruleset"));
+        assert!(hit.is_some(), "nft flush ruleset must be blocked");
+        assert_eq!(hit.unwrap().rule_id, "sys-nft-flush");
+    }
+
+    #[test]
+    fn run_parallel_checks_allows_safe_git_push() {
+        let hit = run_parallel_checks(split_segments("git push origin main"));
+        assert!(hit.is_none(), "safe git push must be allowed");
+    }
+
+    #[test]
+    fn run_parallel_checks_allows_safe_gh_command() {
+        let hit = run_parallel_checks(split_segments("gh pr list"));
+        assert!(hit.is_none());
     }
 }

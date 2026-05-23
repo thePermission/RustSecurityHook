@@ -505,6 +505,11 @@ fn skip_wrapper(tokens: &[String], index: usize) -> usize {
             if token == "--" {
                 return i + 1;
             }
+            // -u/--unset and -S/--split-string each consume the next token as their value
+            if matches!(token, "-u" | "--unset" | "-S" | "--split-string") {
+                i += 2;
+                continue;
+            }
             if token.starts_with('-') || shell::is_env_assignment(token) {
                 i += 1;
                 continue;
@@ -783,6 +788,9 @@ mod tests {
     fn identifies_kubectl_behind_wrapper() {
         assert!(identify_tool("sudo kubectl get pods", &empty_aliases()).is_some());
         assert!(identify_tool("/usr/bin/env kubectl get pods", &empty_aliases()).is_some());
+        // env -u VAR kubectl: -u consumes the next token (VAR), kubectl is the tool
+        assert!(identify_tool("env -u FOO kubectl get pods", &empty_aliases()).is_some());
+        assert!(identify_tool("env --unset FOO kubectl get pods", &empty_aliases()).is_some());
     }
 
     #[test]

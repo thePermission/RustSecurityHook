@@ -54,7 +54,7 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "k8s-force-delete",
         "Kubernetes — Destructive",
         Some("kubectl"),
-        r"\s[^|;&\n]*?\bdelete\b(?:[^|;&\n]*--force\b[^|;&\n]*--grace-period=0|[^|;&\n]*--grace-period=0\b[^|;&\n]*--force)",
+        r"\s[^|;&\n]*?\bdelete\b(?:[^|;&\n]*--force\b[^|;&\n]*--grace-period(?:=|\s+)0|[^|;&\n]*--grace-period(?:=|\s+)0\b[^|;&\n]*--force)",
         "Force-deletes a resource without cleanup hooks; can leave orphans and corrupt state",
     ),
     (
@@ -133,7 +133,7 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "k8s-cluster-admin-binding",
         "Kubernetes — Privilege Escalation",
         Some("kubectl"),
-        r"\s[^|;&\n]*?\bcreate\s+clusterrolebinding\b[^|;&\n]*?--clusterrole=cluster-admin\b",
+        r"\s[^|;&\n]*?\bcreate\s+clusterrolebinding\b[^|;&\n]*?--clusterrole(?:=|\s+)cluster-admin\b",
         "Grants cluster-admin via ClusterRoleBinding — full privilege escalation",
     ),
     (
@@ -177,7 +177,7 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "k8s-scale-zero",
         "Kubernetes — Service Disruption",
         Some("kubectl"),
-        r"\s[^|;&\n]*?\bscale\b[^|;&\n]*?--replicas=0\b",
+        r"\s[^|;&\n]*?\bscale\b[^|;&\n]*?--replicas(?:=|\s+)0\b",
         "Scales a workload to zero replicas — shuts down the application without deleting it",
     ),
     (
@@ -879,6 +879,9 @@ mod tests {
     fn blocks_force_delete() {
         assert!(blocks("kubectl delete pod stuck --force --grace-period=0"));
         assert!(blocks("kubectl delete pod stuck --grace-period=0 --force"));
+        // space-separated flag variants
+        assert!(blocks("kubectl delete pod stuck --force --grace-period 0"));
+        assert!(blocks("kubectl delete pod stuck --grace-period 0 --force"));
     }
 
     // ---- New destructive rules ----
@@ -980,6 +983,10 @@ mod tests {
     fn blocks_cluster_admin_binding() {
         assert!(blocks(
             "kubectl create clusterrolebinding pwn --clusterrole=cluster-admin --serviceaccount=default:default"
+        ));
+        // space-separated flag variant
+        assert!(blocks(
+            "kubectl create clusterrolebinding pwn --clusterrole cluster-admin --serviceaccount=default:default"
         ));
         // Non-cluster-admin binding stays allowed
         assert!(!blocks(
@@ -1323,8 +1330,11 @@ mod tests {
     fn blocks_scale_zero() {
         assert!(blocks("kubectl scale deployment myapp --replicas=0"));
         assert!(blocks("kubectl scale statefulset db --replicas=0 -n prod"));
+        // space-separated flag variant
+        assert!(blocks("kubectl scale deployment myapp --replicas 0"));
         assert!(!blocks("kubectl scale deployment myapp --replicas=3"));
         assert!(!blocks("kubectl scale deployment myapp --replicas=1"));
+        assert!(!blocks("kubectl scale deployment myapp --replicas 3"));
     }
 
     #[test]

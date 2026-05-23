@@ -167,16 +167,17 @@ mod tests {
     #[test]
     fn is_disabled_returns_true_when_global_flag_exists() {
         let dir = tempfile::tempdir().unwrap();
-        unsafe {
-            std::env::set_var("XDG_CONFIG_HOME", dir.path());
-        }
+        let prev = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
         let flag = dir.path().join("rsh").join("disabled");
         std::fs::create_dir_all(flag.parent().unwrap()).unwrap();
         std::fs::write(&flag, "").unwrap();
-        assert!(is_disabled());
+        let result = is_disabled();
         std::fs::remove_file(&flag).unwrap();
-        unsafe {
-            std::env::remove_var("XDG_CONFIG_HOME");
+        match prev {
+            Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v) },
+            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
         }
+        assert!(result);
     }
 }

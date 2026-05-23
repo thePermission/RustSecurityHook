@@ -1107,7 +1107,8 @@ mod tests {
 
     struct IsolatedEnv {
         _dir: tempfile::TempDir,
-        prev: Option<std::ffi::OsString>,
+        prev_xdg: Option<std::ffi::OsString>,
+        prev_cwd: Option<std::path::PathBuf>,
         _guard: std::sync::MutexGuard<'static, ()>,
     }
 
@@ -1115,11 +1116,16 @@ mod tests {
         fn new() -> Self {
             let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let dir = tempfile::tempdir().unwrap();
-            let prev = std::env::var_os("XDG_CONFIG_HOME");
+            let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
+            let prev_cwd = std::env::current_dir().ok();
             unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
+            // Change CWD to the temp dir so a local .rsh-disabled in the repo root
+            // does not cause run_hook_from_str to pass all checks through unchecked.
+            let _ = std::env::set_current_dir(dir.path());
             IsolatedEnv {
                 _dir: dir,
-                prev,
+                prev_xdg,
+                prev_cwd,
                 _guard: guard,
             }
         }
@@ -1131,9 +1137,12 @@ mod tests {
 
     impl Drop for IsolatedEnv {
         fn drop(&mut self) {
-            match &self.prev {
+            match &self.prev_xdg {
                 Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v) },
                 None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
+            }
+            if let Some(cwd) = &self.prev_cwd {
+                let _ = std::env::set_current_dir(cwd);
             }
         }
     }
