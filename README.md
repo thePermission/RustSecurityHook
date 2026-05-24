@@ -233,6 +233,9 @@ rsh alias <cmd> <alias>      Register an alias
 rsh detect-aliases [cmd]     Auto-detect aliases
 rsh rule disable|enable <id> Disable or re-enable an individual rule
 rsh rule list                Show rules with disabled markers
+rsh tool disable|enable <bin>
+                             Disable or re-enable all blacklist rules for one tool binary (e.g. kubectl)
+rsh tool list                Show all known tool binaries with rule counts and status
 rsh forbid push              Block git push and PR merge for this project (creates .rsh-nopush)
 rsh forbid cluster|namespace|database <name>
                              Block commands targeting a specific cluster, namespace, or database
