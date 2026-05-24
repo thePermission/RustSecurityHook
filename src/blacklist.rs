@@ -679,6 +679,13 @@ const RAW_RULES: &[(&str, &str, Option<&str>, &str, &str)] = &[
         "Prevents disabling blacklist rules — would allow previously blocked commands through",
     ),
     (
+        "rsh-protect-tool-disable",
+        "rsh Self-Protection",
+        Some("rsh"),
+        r"\s[^|;&\n]*?\btool\s+disable\b",
+        "Prevents disabling all rules for a tool — would allow all previously blocked commands for that binary",
+    ),
+    (
         "rsh-protect-allow",
         "rsh Self-Protection",
         Some("rsh"),
@@ -1932,6 +1939,7 @@ mod tests {
             "rsh-protect-allow",
             "rsh-protect-config-access",
             "rsh-protect-disable",
+            "rsh-protect-tool-disable",
             "rsh-self-disable",
             "rsh-subprocess-list",
             "sql-alter-table",
@@ -2018,6 +2026,18 @@ mod tests {
         // list and enable must not be blocked
         assert!(!blocks("rsh rule list"));
         assert!(!blocks("rsh rule enable k8s-delete-namespace"));
+    }
+
+    #[test]
+    fn blocks_rsh_tool_disable_via_self_protection() {
+        assert!(
+            blocks("rsh tool disable kubectl"),
+            "rsh tool disable kubectl must be blocked"
+        );
+        assert!(
+            blocks("rsh tool disable docker"),
+            "rsh tool disable docker must be blocked"
+        );
     }
 
     #[test]
