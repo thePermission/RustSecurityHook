@@ -90,7 +90,8 @@ pub fn aliases_for(map: &AliasMap, command: &str) -> Vec<String> {
 }
 
 /// Scans $PATH for files whose canonical path matches `command`'s canonical
-/// path. Catches symlinks and hardlinks; does NOT detect wrapper shell scripts.
+/// path. Reliably catches symlinks; hardlinks are not reliably detectable with
+/// this approach. Does NOT detect wrapper shell scripts.
 pub fn detect_in_path(command: &str) -> Vec<String> {
     let Some(path_var) = std::env::var_os("PATH") else {
         return Vec::new();
@@ -172,6 +173,75 @@ fn is_executable(p: &Path) -> bool {
     p.metadata()
         .map(|m| m.is_file() && (m.permissions().mode() & 0o111) != 0)
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_in_path_finds_symlink_alias() {
+        use std::os::unix::fs::symlink;
+
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("kubectl");
+        std::fs::write(&target, "#!/bin/sh\n").unwrap();
+        let mut perms = std::fs::metadata(&target).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&target, perms).unwrap();
+
+        let alias = dir.path().join("k");
+        symlink(&target, &alias).unwrap();
+
+        let prev_path = std::env::var_os("PATH");
+        unsafe {
+            std::env::set_var("PATH", dir.path().as_os_str());
+        }
+
+        let detected = detect_in_path("kubectl");
+
+        match prev_path {
+            Some(v) => unsafe { std::env::set_var("PATH", v) },
+            None => unsafe { std::env::remove_var("PATH") },
+        }
+
+        assert!(detected.iter().any(|a| a == "k"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_in_path_does_not_reliably_find_hardlink_alias() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("kubectl");
+        std::fs::write(&target, "#!/bin/sh\n").unwrap();
+        let mut perms = std::fs::metadata(&target).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&target, perms).unwrap();
+
+        let alias = dir.path().join("k");
+        std::fs::hard_link(&target, &alias).unwrap();
+
+        let prev_path = std::env::var_os("PATH");
+        unsafe {
+            std::env::set_var("PATH", dir.path().as_os_str());
+        }
+
+        let detected = detect_in_path("kubectl");
+
+        match prev_path {
+            Some(v) => unsafe { std::env::set_var("PATH", v) },
+            None => unsafe { std::env::remove_var("PATH") },
+        }
+
+        assert!(!detected.iter().any(|a| a == "k"));
+    }
 }
 
 #[cfg(windows)]

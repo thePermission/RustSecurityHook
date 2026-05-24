@@ -83,7 +83,7 @@ Each tool family has its own checker with its own set of measures:
 
 | File | Decision |
 |---|---|
-| [[001-sql-blocking\|adr/001-sql-blocking.md]] | SQL keyword rules and forbidden database hosts |
+| [[020-sql-blocking\|adr/020-sql-blocking.md]] | SQL keyword rules and forbidden database hosts |
 | [[002-docker-blacklist-rules\|adr/002-docker-blacklist-rules.md]] | Docker and Docker Compose blacklist rules |
 | [[003-write-edit-and-script-scanning\|adr/003-write-edit-and-script-scanning.md]] | Write/Edit tool interception and script file content scanning |
 | [[004-fail-open-exit-code-contract\|adr/004-fail-open-exit-code-contract.md]] | Fail-open design and exit code semantics |
@@ -91,7 +91,7 @@ Each tool family has its own checker with its own set of measures:
 | [[006-kubernetes-helm-initial-blacklist\|adr/006-kubernetes-helm-initial-blacklist.md]] | Initial Kubernetes and Helm blacklist rules |
 | [[007-alias-system-design\|adr/007-alias-system-design.md]] | Alias system: storage format, auto-detection, runtime caching |
 | [[008-rule-disable-enable\|adr/008-rule-disable-enable.md]] | Per-rule disable/enable toggle |
-| [[001-bingroup-fast-path\|adr/001-bingroup-fast-path.md]] | BinGroup fast-path |
+| [[021-bingroup-fast-path\|adr/021-bingroup-fast-path.md]] | BinGroup fast-path |
 | [[009-rsh-self-protection\|adr/009-rsh-self-protection.md]] | rsh self-protection rules and protected config paths |
 | [[010-criterion-benchmarks\|adr/010-criterion-benchmarks.md]] | Criterion benchmark suite |
 | [[011-tool-checker-parallel-pipeline\|adr/011-tool-checker-parallel-pipeline.md]] | ToolChecker trait and check pipeline (parallel execution, superseded by ADR 015) |

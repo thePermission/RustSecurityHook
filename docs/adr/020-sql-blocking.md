@@ -1,4 +1,4 @@
-# ADR 001 — SQL Blocking: Keyword Rules and Forbidden Databases
+# ADR 020 — SQL Blocking: Keyword Rules and Forbidden Databases
 
 **Date:** 2026-05-16  
 **Status:** Accepted

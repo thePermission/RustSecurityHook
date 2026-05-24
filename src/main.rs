@@ -45,7 +45,7 @@ enum Commands {
         /// Alias to register (e.g. k)
         alias: String,
     },
-    /// Auto-detect aliases by scanning $PATH for symlinks/hardlinks
+    /// Auto-detect aliases by scanning $PATH for symlinks
     DetectAliases {
         /// Commands to scan; defaults to all rule binaries when empty
         commands: Vec<String>,
@@ -541,16 +541,6 @@ fn run_hook_from_str(input: &str) -> ExitCode {
     let Ok(input) = serde_json::from_str::<HookInput>(input) else {
         return ExitCode::SUCCESS;
     };
-    if is_command_tool(&input.tool_name, &input.tool_input) {
-        let command = extract_command(&input.tool_input);
-        if nopush::is_nopush_active() && nopush::is_push_command(command) {
-            eprintln!("rsh blocked push: this project is marked read-only (.rsh-nopush)");
-            eprintln!("hint: run 'rsh allow push' to re-enable pushing");
-            return ExitCode::from(2);
-        }
-        return run_check(command);
-    }
-
     match input.tool_name.as_str() {
         "Read" => {
             let file_path = input
@@ -644,7 +634,18 @@ fn run_hook_from_str(input: &str) -> ExitCode {
                 .unwrap_or("");
             run_check_content(command)
         }
-        _ => ExitCode::SUCCESS,
+        _ => {
+            if is_command_tool(&input.tool_name, &input.tool_input) {
+                let command = extract_command(&input.tool_input);
+                if nopush::is_nopush_active() && nopush::is_push_command(command) {
+                    eprintln!("rsh blocked push: this project is marked read-only (.rsh-nopush)");
+                    eprintln!("hint: run 'rsh allow push' to re-enable pushing");
+                    return ExitCode::from(2);
+                }
+                return run_check(command);
+            }
+            ExitCode::SUCCESS
+        }
     }
 }
 
@@ -1612,6 +1613,20 @@ mod tests {
     fn run_hook_blocks_write_to_secret_path() {
         let _env = IsolatedEnv::new();
         let input = r#"{"tool_name":"Write","tool_input":{"file_path":"/home/user/.env","content":"HELLO=world"}}"#;
+        assert_eq!(run_hook_from_str(input), ExitCode::from(2));
+    }
+
+    #[test]
+    fn security_regression_write_tool_does_not_fall_back_to_command_shortcut() {
+        let _env = IsolatedEnv::new();
+        let input = r#"{
+            "tool_name":"Write",
+            "tool_input":{
+                "file_path":"/home/user/.env",
+                "content":"SAFE=true",
+                "command":"echo harmless"
+            }
+        }"#;
         assert_eq!(run_hook_from_str(input), ExitCode::from(2));
     }
 

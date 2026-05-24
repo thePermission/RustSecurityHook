@@ -1,4 +1,4 @@
-# ADR 001: BinGroup Fast-Path for Blacklist and Forbid
+# ADR 021: BinGroup Fast-Path for Blacklist and Forbid
 
 ## Context
 

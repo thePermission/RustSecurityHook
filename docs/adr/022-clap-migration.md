@@ -1,4 +1,4 @@
-# ADR 001: Adopt clap 4 for CLI argument parsing
+# ADR 022: Adopt clap 4 for CLI argument parsing
 
 **Date:** 2026-05-18  
 **Status:** Accepted
