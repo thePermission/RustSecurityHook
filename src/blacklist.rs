@@ -793,6 +793,11 @@ pub fn check_filtered(command: &str, disabled: &std::collections::HashSet<String
             if disabled.contains(rule.id) {
                 continue;
             }
+            if let Some(bin) = rule.bin {
+                if disabled.contains(&format!("tool:{bin}")) {
+                    continue;
+                }
+            }
             if rule.regex.is_match(command)
                 || normalized
                     .as_ref()
@@ -1986,6 +1991,44 @@ mod tests {
             hit_id(r#"mysql -e "CREATE TABLE tmp (id INT)""#),
             Some("sql-create-ddl")
         );
+    }
+
+    // ---- tool:<bin> filtering ----
+
+    #[test]
+    fn check_filtered_skips_all_kubectl_rules_when_tool_disabled() {
+        let mut disabled = std::collections::HashSet::new();
+        disabled.insert("tool:kubectl".to_string());
+        assert!(
+            check_filtered("kubectl delete ns prod", &disabled).is_none(),
+            "kubectl delete ns should be skipped when tool:kubectl disabled"
+        );
+        assert!(
+            check_filtered("kubectl drain node-1", &disabled).is_none(),
+            "kubectl drain should be skipped when tool:kubectl disabled"
+        );
+    }
+
+    #[test]
+    fn check_filtered_still_blocks_other_tools_when_kubectl_disabled() {
+        let mut disabled = std::collections::HashSet::new();
+        disabled.insert("tool:kubectl".to_string());
+        let hit = check_filtered("docker compose down -v", &disabled);
+        assert!(
+            hit.is_some(),
+            "docker rules must still fire when only tool:kubectl is disabled"
+        );
+    }
+
+    #[test]
+    fn check_filtered_tool_disabled_coexists_with_rule_disabled() {
+        let mut disabled = std::collections::HashSet::new();
+        disabled.insert("tool:kubectl".to_string());
+        disabled.insert("docker-compose-down-v".to_string());
+        assert!(check_filtered("kubectl delete ns prod", &disabled).is_none());
+        // docker rm -f does NOT hit any rule (no rule blocks plain rm -f without volumes)
+        // just verify no panic
+        let _ = check_filtered("docker rm -f mycontainer", &disabled);
     }
 
     // ---- disabled-rule filtering ----
