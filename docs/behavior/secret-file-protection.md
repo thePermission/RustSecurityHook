@@ -50,7 +50,7 @@ rsh rule enable  secret-dotenv     # restore blocking
 rsh rule list                      # show all disabled rules
 ```
 
-Disabled rule IDs are persisted in `~/.config/rsh/disabled-rules.json`.
+Disabled rule IDs are persisted in `~/.config/rsh/disabled.json`.
 
 ## Known limitations
 

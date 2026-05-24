@@ -59,8 +59,10 @@ See [[alias-system]].
 ## Disabling Rules
 
 ```sh
-rsh rule disable docker-volume-rm
-rsh rule enable docker-volume-rm
+rsh rule disable docker-volume-rm   # disable a single rule
+rsh rule enable docker-volume-rm    # restore it
+rsh tool disable docker             # disable all docker rules at once
+rsh tool enable docker              # restore all docker rules
 ```
 
 See [[rules-and-categories]].

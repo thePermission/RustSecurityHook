@@ -93,7 +93,7 @@ A path is protected if it targets rsh's configuration directory or one of the ho
 
 - `/home/user/.config/rsh/forbidden.json` — **blocked**
 - `~/.config/rsh/aliases.json` — **blocked**
-- `.config/rsh/disabled-rules.json` — **blocked**
+- `.config/rsh/disabled.json` — **blocked**
 - `.rsh-disabled` — **blocked**
 - `/home/user/.config/rsh/disabled` — **blocked**
 - `/home/user/.config/other/config.json` — **allowed**
@@ -104,7 +104,7 @@ The `rsh` configuration directory stores:
 
 - `forbidden.json` — the forbid list (clusters, namespaces, databases)
 - `aliases.json` — command-to-alias mappings
-- `disabled-rules.json` — per-user rule enable/disable state
+- `disabled.json` — per-user rule and tool enable/disable state
 - `disabled` — global hook disable flag
 - `.rsh-disabled` — local hook disable flag
 

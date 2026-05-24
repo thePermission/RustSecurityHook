@@ -51,12 +51,14 @@ All registered helm aliases are expanded automatically via the alias system. See
 
 ## Disabling Rules
 
-Individual rules can be temporarily disabled:
+Individual rules or all helm rules at once can be temporarily disabled:
 
 ```sh
 rsh rule disable helm-uninstall      # allow helm uninstall until re-enabled
 rsh rule enable helm-uninstall       # restore the block
-rsh rule list                         # show all rules with [DISABLED] markers
+rsh tool disable helm                # disable all helm rules at once
+rsh tool enable helm                 # restore all helm rules
+rsh rule list                        # show all rules with [DISABLED] markers
 ```
 
 Disabling does not affect the forbid check — only regex rules.

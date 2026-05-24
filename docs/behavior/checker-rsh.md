@@ -19,6 +19,7 @@ The checker runs only the **regex blacklist pipeline** — no forbid checks.
 | ID | Blocked command | Reason |
 |---|---|---|
 | `rsh-protect-disable` | `rsh rule disable <id>` | Prevents rsh from being neutered via the Bash tool |
+| `rsh-protect-tool-disable` | `rsh tool disable <bin>` | Prevents disabling all rules for a tool binary via the Bash tool |
 | `rsh-protect-allow` | `rsh allow <type> <name>` | Prevents removing a forbid entry or push protection via the Bash tool |
 | `rsh-protect-config-access` | Any Bash command targeting `.config/rsh` | Prevents direct config file manipulation |
 | `rsh-self-disable` | `rsh off` / `rsh on` | Prevents agents from disabling or re-enabling the whole hook |
@@ -26,7 +27,7 @@ The checker runs only the **regex blacklist pipeline** — no forbid checks.
 
 ## Self-protection property
 
-`rsh-protect-disable` cannot be disabled by running `rsh rule disable rsh-protect-disable` — the command matches the rule itself and is blocked before taking effect.
+`rsh-protect-disable` and `rsh-protect-tool-disable` are self-referential: running `rsh rule disable rsh-protect-disable` or `rsh tool disable rsh` matches the respective rule and is blocked before taking effect.
 
 ## Hardcoded path check (Write and Edit tools)
 
@@ -36,7 +37,7 @@ Bash access to those paths is handled by the self-protection blacklist rules abo
 
 ## What remains allowed
 
-- `rsh rule enable <id>` — re-enabling is security-increasing
-- `rsh rule list`, `rsh list` — read-only operations
+- `rsh rule enable <id>` / `rsh tool enable <bin>` — re-enabling is security-increasing
+- `rsh rule list`, `rsh tool list`, `rsh list` — read-only operations
 - `rsh forbid cluster/namespace <name>` — adding restrictions
 - Manual edits to `~/.config/rsh/` outside Claude Code or Codex tool calls (the hook only runs during protected tool calls)

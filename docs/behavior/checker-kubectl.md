@@ -86,11 +86,13 @@ All registered kubectl aliases are expanded automatically via the alias system. 
 
 ## Disabling Rules
 
-Individual rules can be temporarily disabled:
+Individual rules or all kubectl rules at once can be temporarily disabled:
 
 ```sh
 rsh rule disable k8s-drain      # allow kubectl drain until re-enabled
 rsh rule enable k8s-drain       # restore the block
+rsh tool disable kubectl        # disable all kubectl rules at once
+rsh tool enable kubectl         # restore all kubectl rules
 rsh rule list                   # show all rules with [DISABLED] markers
 ```
 

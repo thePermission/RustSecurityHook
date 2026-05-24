@@ -1,6 +1,6 @@
 # Blocked commands by tool
 
-`rsh` ships with 92 blacklist rules across 28 categories plus 20 secret file rules across five categories. Run `rsh list` to see all active rules, disabled markers, and the current alias map.
+`rsh` ships with 93 blacklist rules across 28 categories plus 20 secret file rules across five categories. Run `rsh list` to see all active rules, disabled markers, and the current alias map.
 
 Aliases registered via `rsh alias` or detected by `rsh detect-aliases` are covered by all binary-bound blacklist rules.
 
@@ -165,8 +165,9 @@ These rules match SQL keywords regardless of which client (`psql`, `mysql`, `sql
 |---|---|---|
 | `rsh-self-disable` | `rsh off` / `rsh on` | Agents must not disable or re-enable the security hook |
 | `rsh-protect-disable` | `rsh rule disable` | Deactivating rules would allow previously blocked commands through |
+| `rsh-protect-tool-disable` | `rsh tool disable` | Deactivating all rules for a tool would allow all previously blocked commands for that binary |
 | `rsh-protect-allow` | `rsh allow push\|cluster\|namespace\|database` | Prevents lifting forbid/push restrictions — re-allowing targets would bypass user-set protections |
-| `rsh-protect-config-access` | Any access to `~/.config/rsh/` | Protects aliases, disabled-rules, and forbid lists from tampering |
+| `rsh-protect-config-access` | Any access to `~/.config/rsh/` | Protects aliases, disabled.json, and forbid lists from tampering |
 | `rsh-guard-flag-file` | Any access to `.rsh-disabled`, `rsh/disabled`, or `.rsh-nopush` | Prevents renaming or deleting the flag files that control hook state |
 | `rsh-subprocess-list` | `['rsh', …, 'off'\|'on'\|'allow']` in script/file content | Prevents subprocess-based self-disable bypass |
 
@@ -174,7 +175,7 @@ These rules match SQL keywords regardless of which client (`psql`, `mysql`, `sql
 
 These rules apply to `Read`, `Write`, and `Edit` tool calls (and `Bash` commands that reference a file path). They block access to files that commonly contain credentials or private keys regardless of the directory they live in. Symlinks are resolved before matching so a renamed symlink to `.env` is still caught.
 
-Individual rules can be disabled with `rsh rule disable <id>` (e.g. if you intentionally manage secrets files in your project).
+Individual rules can be disabled with `rsh rule disable <id>` (e.g. if you intentionally manage secrets files in your project). To disable all rules for a tool binary at once, use `rsh tool disable <bin>` (e.g. `rsh tool disable kubectl`).
 
 ### Secret Files — Environment
 

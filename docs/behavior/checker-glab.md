@@ -58,10 +58,12 @@ All registered glab aliases are expanded automatically via the alias system. See
 
 ## Disabling Rules
 
-Individual rules can be temporarily disabled:
+Individual rules or all glab rules at once can be temporarily disabled:
 
 ```sh
 rsh rule disable glab-repo-delete       # allow glab repo delete until re-enabled
 rsh rule enable glab-repo-delete        # restore the block
-rsh rule list                            # show all rules with [DISABLED] markers
+rsh tool disable glab                   # disable all glab rules at once
+rsh tool enable glab                    # restore all glab rules
+rsh rule list                           # show all rules with [DISABLED] markers
 ```
