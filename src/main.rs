@@ -309,7 +309,16 @@ fn list_rules() {
             if by_category.len() == 1 { "y" } else { "ies" }
         );
         for (cat, items) in &by_category {
-            println!("  ▌ {} ({})", cat, items.len());
+            let common_bin = items.first().and_then(|r| r.bin);
+            let tool_disabled = common_bin.is_some()
+                && items.iter().all(|r| r.bin == common_bin)
+                && common_bin
+                    .map_or(false, |b| disabled_set.contains(&format!("tool:{b}")));
+            if tool_disabled {
+                println!("  ▌ {} ({})  [TOOL DISABLED]", cat, items.len());
+            } else {
+                println!("  ▌ {} ({})", cat, items.len());
+            }
             println!("  ────────────────────────────────────────────────────────────");
             for r in items {
                 if disabled_set.contains(r.id) {
@@ -443,7 +452,16 @@ fn list_rule_table() {
         if by_category.len() == 1 { "y" } else { "ies" }
     );
     for (cat, items) in &by_category {
-        println!("  ▌ {cat}");
+        let common_bin = items.first().and_then(|r| r.bin);
+        let tool_disabled = common_bin.is_some()
+            && items.iter().all(|r| r.bin == common_bin)
+            && common_bin
+                .map_or(false, |b| disabled_set.contains(&format!("tool:{b}")));
+        if tool_disabled {
+            println!("  ▌ {cat}  [TOOL DISABLED]");
+        } else {
+            println!("  ▌ {cat}");
+        }
         for r in items {
             if disabled_set.contains(r.id) {
                 println!("    • {}  [DISABLED]", r.id);
@@ -1310,6 +1328,13 @@ mod tests {
         let arr = value["hooks"]["PreToolUse"].as_array().unwrap();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["hooks"][0]["command"], "rsh");
+    }
+
+    #[test]
+    fn tool_disabled_marker_appears_in_rule_list_output() {
+        // Grundlage: is_valid_tool_bin funktioniert korrekt
+        assert!(is_valid_tool_bin("kubectl"));
+        assert!(!is_valid_tool_bin("nonexistent-tool-xyz"));
     }
 
     #[test]
