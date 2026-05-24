@@ -59,6 +59,32 @@ Claude Code and Codex send the hook a JSON event with `tool_name` and `tool_inpu
 
 Before scanning content, `rsh` verifies that the target file path is not a protected path. This check is hardcoded in `run_hook()` for Claude `Write` and `Edit` and cannot be bypassed by disabling any blacklist rule.
 
+### Stage 1b: Settings Hook Guard
+
+After the protected path check, `rsh` checks whether the target path is a Claude or Codex settings file:
+
+- `.claude/settings.json` (global or project-local)
+- `.claude/settings.local.json` (global or project-local)
+- `.codex/hooks.json` (global or project-local)
+
+If the path matches **and** the rsh `PreToolUse` hook is currently present in that file **and** the operation would remove it, the write or edit is blocked.
+
+For `Write`, the new content is parsed as JSON and checked for the hook. For `Edit`, `rsh` reads the current file, applies the `old_string` → `new_string` replacement in memory, and checks the resulting JSON. Normal settings changes that preserve the hook — or edits to files that never had the hook — pass through without restriction.
+
+The check is intentionally fail-open: unparseable JSON, missing files, or unlocatable `old_string` values are never treated as a block reason.
+
+#### Block Message
+
+```
+rsh blocked write to /home/user/.claude/settings.json: would remove rsh PreToolUse hook
+```
+
+or
+
+```
+rsh blocked edit of /home/user/.codex/hooks.json: would remove rsh PreToolUse hook
+```
+
 ### Protected Paths
 
 A path is protected if it targets rsh's configuration directory or one of the hook disable flag files. The check handles both forward and backslashes, includes platform-specific configured paths, and canonicalizes existing paths so symlinks to protected files are also blocked.

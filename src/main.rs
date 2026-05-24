@@ -1,4 +1,4 @@
-use rsh::{aliases, blacklist, disabled, forbid, nopush, secrets};
+use rsh::{aliases, blacklist, disabled, forbid, nopush, secrets, settings_guard};
 use rsh::{is_protected_path, run_check, run_check_content};
 
 use anyhow::{Context, Result};
@@ -557,12 +557,25 @@ fn run_hook_from_str(input: &str) -> ExitCode {
                 );
                 return ExitCode::from(2);
             }
+            if settings_guard::is_settings_path(file_path)
+                && settings_guard::write_removes_hook(file_path, content)
+            {
+                eprintln!(
+                    "rsh blocked write to {file_path}: would remove rsh PreToolUse hook"
+                );
+                return ExitCode::from(2);
+            }
             run_check_content(content)
         }
         "Edit" => {
             let file_path = input
                 .tool_input
                 .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let old_string = input
+                .tool_input
+                .get("old_string")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let new_string = input
@@ -578,6 +591,14 @@ fn run_hook_from_str(input: &str) -> ExitCode {
                 eprintln!(
                     "rsh blocked edit of secret file (rule: {}): {}",
                     h.id, h.reason
+                );
+                return ExitCode::from(2);
+            }
+            if settings_guard::is_settings_path(file_path)
+                && settings_guard::edit_removes_hook(file_path, old_string, new_string)
+            {
+                eprintln!(
+                    "rsh blocked edit of {file_path}: would remove rsh PreToolUse hook"
                 );
                 return ExitCode::from(2);
             }
@@ -1557,5 +1578,93 @@ mod tests {
 
         let count = content.lines().filter(|l| l.trim() == ".rsh-nopush").count();
         assert_eq!(count, 1);
+    }
+
+    fn settings_json_with_rsh_hook() -> String {
+        serde_json::json!({
+            "hooks": {
+                "PreToolUse": [{
+                    "matcher": "",
+                    "hooks": [{"type": "command", "command": "rsh"}]
+                }]
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn security_regression_run_hook_blocks_write_that_removes_rsh_hook() {
+        let _env = IsolatedEnv::new();
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join(".claude").join("settings.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, settings_json_with_rsh_hook()).unwrap();
+
+        let input = serde_json::json!({
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": settings,
+                "content": r#"{"theme":"dark"}"#
+            }
+        })
+        .to_string();
+
+        assert_eq!(run_hook_from_str(&input), ExitCode::from(2));
+    }
+
+    #[test]
+    fn security_regression_run_hook_allows_write_that_preserves_rsh_hook() {
+        let _env = IsolatedEnv::new();
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join(".claude").join("settings.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        std::fs::write(&settings, settings_json_with_rsh_hook()).unwrap();
+
+        let new_content = serde_json::json!({
+            "theme": "dark",
+            "hooks": {
+                "PreToolUse": [{
+                    "matcher": "",
+                    "hooks": [{"type": "command", "command": "rsh"}]
+                }]
+            }
+        })
+        .to_string();
+
+        let input = serde_json::json!({
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": settings,
+                "content": new_content
+            }
+        })
+        .to_string();
+
+        assert_eq!(run_hook_from_str(&input), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn security_regression_run_hook_blocks_edit_that_removes_rsh_hook() {
+        let _env = IsolatedEnv::new();
+        let dir = tempfile::tempdir().unwrap();
+        let settings = dir.path().join(".codex").join("hooks.json");
+        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        let original = settings_json_with_rsh_hook();
+        std::fs::write(&settings, &original).unwrap();
+
+        // BTreeMap key order: "hooks" < "matcher", "command" < "type"
+        let hook_entry =
+            r#"{"hooks":[{"command":"rsh","type":"command"}],"matcher":""}"#;
+        let input = serde_json::json!({
+            "tool_name": "Edit",
+            "tool_input": {
+                "file_path": settings,
+                "old_string": hook_entry,
+                "new_string": r#"{"matcher":""}"#
+            }
+        })
+        .to_string();
+
+        assert_eq!(run_hook_from_str(&input), ExitCode::from(2));
     }
 }

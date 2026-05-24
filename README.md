@@ -120,6 +120,7 @@ Exit codes (relevant when running as a hook):
 - **`rsh rule disable`** — agents cannot deactivate individual rules (`rsh-protect-disable`).
 - **`~/.config/rsh/` directory** — any `Bash` command that touches the config directory is blocked (`rsh-protect-config-access`).
 - **Flag files** — `.rsh-disabled` and `rsh/disabled` cannot be accessed or deleted by a running agent (`rsh-guard-flag-file`).
+- **Claude/Codex settings files** — any `Write` or `Edit` to `.claude/settings.json`, `.claude/settings.local.json`, or `.codex/hooks.json` that would remove the rsh `PreToolUse` hook is blocked. Other changes to those files (theme, other settings, other hooks) continue to work normally.
 
 `Write` and `Edit` access to any path inside `~/.config/rsh/` is also blocked at the tool level, independent of the blacklist rules.
 
