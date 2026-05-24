@@ -1368,24 +1368,19 @@ mod tests {
     fn category_tool_disabled_false_for_mixed_bins() {
         use std::collections::HashSet;
         let rules = blacklist::rules();
-        // Mische kubectl und docker Regeln (heterogene Kategorie)
-        let mixed: Vec<&blacklist::Rule> = rules
-            .iter()
-            .filter(|r| r.bin == Some("kubectl") || r.bin == Some("docker"))
-            .take(4)
-            .collect();
+        // Nimm exakt eine kubectl- und eine docker-Regel für eine deterministische heterogene Gruppe
+        let kubectl = rules.iter().find(|r| r.bin == Some("kubectl")).unwrap();
+        let docker = rules.iter().find(|r| r.bin == Some("docker")).unwrap();
+        let mixed = vec![kubectl, docker];
 
         let mut disabled = HashSet::new();
         disabled.insert("tool:kubectl".to_string());
         disabled.insert("tool:docker".to_string());
 
-        // Mixed bins → nicht als TOOL DISABLED markieren
-        if mixed.iter().any(|r| r.bin == Some("kubectl")) && mixed.iter().any(|r| r.bin == Some("docker")) {
-            assert!(
-                !category_tool_disabled(&mixed, &disabled),
-                "mixed-bin category must NOT be marked TOOL DISABLED"
-            );
-        }
+        assert!(
+            !category_tool_disabled(&mixed, &disabled),
+            "mixed-bin category must NOT be marked TOOL DISABLED"
+        );
     }
 
     #[test]

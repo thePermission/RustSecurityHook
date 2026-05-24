@@ -2029,11 +2029,13 @@ mod tests {
     fn check_filtered_tool_disabled_coexists_with_rule_disabled() {
         let mut disabled = std::collections::HashSet::new();
         disabled.insert("tool:kubectl".to_string());
-        disabled.insert("docker-compose-down-v".to_string());
+        // k8s-drain is a kubectl rule disabled individually (redundant with tool, but valid)
+        disabled.insert("k8s-drain".to_string());
+        // kubectl skipped via tool namespace
         assert!(check_filtered("kubectl delete ns prod", &disabled).is_none());
-        // docker rm -f does NOT hit any rule (no rule blocks plain rm -f without volumes)
-        // just verify no panic
-        let _ = check_filtered("docker rm -f mycontainer", &disabled);
+        assert!(check_filtered("kubectl drain node-1", &disabled).is_none());
+        // docker rules still fire — tool:docker not in disabled
+        assert!(check_filtered("docker compose down -v", &disabled).is_some());
     }
 
     // ---- disabled-rule filtering ----
