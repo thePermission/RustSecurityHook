@@ -309,11 +309,7 @@ fn list_rules() {
             if by_category.len() == 1 { "y" } else { "ies" }
         );
         for (cat, items) in &by_category {
-            let common_bin = items.first().and_then(|r| r.bin);
-            let tool_disabled = common_bin.is_some()
-                && items.iter().all(|r| r.bin == common_bin)
-                && common_bin
-                    .map_or(false, |b| disabled_set.contains(&format!("tool:{b}")));
+            let tool_disabled = category_tool_disabled(items, &disabled_set);
             if tool_disabled {
                 println!("  ▌ {} ({})  [TOOL DISABLED]", cat, items.len());
             } else {
@@ -452,11 +448,7 @@ fn list_rule_table() {
         if by_category.len() == 1 { "y" } else { "ies" }
     );
     for (cat, items) in &by_category {
-        let common_bin = items.first().and_then(|r| r.bin);
-        let tool_disabled = common_bin.is_some()
-            && items.iter().all(|r| r.bin == common_bin)
-            && common_bin
-                .map_or(false, |b| disabled_set.contains(&format!("tool:{b}")));
+        let tool_disabled = category_tool_disabled(items, &disabled_set);
         if tool_disabled {
             println!("  ▌ {cat}  [TOOL DISABLED]");
         } else {
@@ -678,6 +670,16 @@ fn is_valid_rule_id(id: &str) -> bool {
 
 fn is_valid_tool_bin(bin: &str) -> bool {
     blacklist::rules().iter().any(|r| r.bin == Some(bin))
+}
+
+fn category_tool_disabled(
+    items: &[&blacklist::Rule],
+    disabled_set: &std::collections::HashSet<String>,
+) -> bool {
+    let common_bin = items.first().and_then(|r| r.bin);
+    common_bin.is_some()
+        && items.iter().all(|r| r.bin == common_bin)
+        && common_bin.map_or(false, |b| disabled_set.contains(&format!("tool:{b}")))
 }
 
 fn run_tool(action: ToolAction) -> ExitCode {
@@ -1331,10 +1333,59 @@ mod tests {
     }
 
     #[test]
-    fn tool_disabled_marker_appears_in_rule_list_output() {
-        // Grundlage: is_valid_tool_bin funktioniert korrekt
-        assert!(is_valid_tool_bin("kubectl"));
-        assert!(!is_valid_tool_bin("nonexistent-tool-xyz"));
+    fn category_tool_disabled_detects_homogeneous_disabled_bin() {
+        use std::collections::HashSet;
+        let rules = blacklist::rules();
+        // Sammle alle kubectl-Regeln
+        let kubectl_items: Vec<&blacklist::Rule> =
+            rules.iter().filter(|r| r.bin == Some("kubectl")).collect();
+        assert!(!kubectl_items.is_empty(), "need at least one kubectl rule");
+
+        let mut disabled = HashSet::new();
+        disabled.insert("tool:kubectl".to_string());
+
+        assert!(
+            category_tool_disabled(&kubectl_items, &disabled),
+            "homogeneous kubectl category should be marked TOOL DISABLED"
+        );
+    }
+
+    #[test]
+    fn category_tool_disabled_false_when_bin_not_disabled() {
+        use std::collections::HashSet;
+        let rules = blacklist::rules();
+        let kubectl_items: Vec<&blacklist::Rule> =
+            rules.iter().filter(|r| r.bin == Some("kubectl")).collect();
+
+        let disabled = HashSet::new(); // empty — kubectl NOT disabled
+        assert!(
+            !category_tool_disabled(&kubectl_items, &disabled),
+            "category should NOT be marked when tool is not in disabled set"
+        );
+    }
+
+    #[test]
+    fn category_tool_disabled_false_for_mixed_bins() {
+        use std::collections::HashSet;
+        let rules = blacklist::rules();
+        // Mische kubectl und docker Regeln (heterogene Kategorie)
+        let mixed: Vec<&blacklist::Rule> = rules
+            .iter()
+            .filter(|r| r.bin == Some("kubectl") || r.bin == Some("docker"))
+            .take(4)
+            .collect();
+
+        let mut disabled = HashSet::new();
+        disabled.insert("tool:kubectl".to_string());
+        disabled.insert("tool:docker".to_string());
+
+        // Mixed bins → nicht als TOOL DISABLED markieren
+        if mixed.iter().any(|r| r.bin == Some("kubectl")) && mixed.iter().any(|r| r.bin == Some("docker")) {
+            assert!(
+                !category_tool_disabled(&mixed, &disabled),
+                "mixed-bin category must NOT be marked TOOL DISABLED"
+            );
+        }
     }
 
     #[test]
