@@ -1,6 +1,6 @@
 NAME ?= main
 
-.PHONY: fmt fmt-check clippy test ci bench bench-save bench-compare
+.PHONY: fmt fmt-check clippy test ci bench bench-save bench-compare install
 
 fmt:
 	cargo fmt
@@ -25,3 +25,6 @@ bench-save:
 
 bench-compare:
 	cargo bench --bench hook -- --baseline $(NAME) 2>/dev/null
+
+install:
+	cargo install --path . --root ~/.local
