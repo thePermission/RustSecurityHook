@@ -55,6 +55,11 @@ enum Commands {
         #[command(subcommand)]
         action: RuleAction,
     },
+    /// Manage tool-level rule switches (disable/enable all rules for a binary)
+    Tool {
+        #[command(subcommand)]
+        action: ToolAction,
+    },
     /// Block access to a cluster, namespace, database, or enable the push lock
     Forbid {
         #[command(subcommand)]
@@ -97,6 +102,22 @@ enum RuleAction {
         id: String,
     },
     /// Show all rules with [DISABLED] marker where applicable
+    List,
+}
+
+#[derive(Subcommand)]
+enum ToolAction {
+    /// Disable all blacklist rules for a tool binary
+    Disable {
+        /// Tool binary name (e.g. kubectl, docker, glab)
+        bin: String,
+    },
+    /// Re-enable all blacklist rules for a tool binary
+    Enable {
+        /// Tool binary name (e.g. kubectl, docker, glab)
+        bin: String,
+    },
+    /// Show all known tool binaries with rule counts and status
     List,
 }
 
@@ -244,6 +265,7 @@ fn main() -> ExitCode {
             run_detect(&targets)
         }
         Some(Commands::Rule { action }) => run_rule(action),
+        Some(Commands::Tool { action }) => run_tool(action),
         Some(Commands::Forbid { action }) => run_forbid(action),
         Some(Commands::Allow { target }) => run_allow(target),
         Some(Commands::Completions { shell }) => {
@@ -634,6 +656,83 @@ fn extract_command(tool_input: &serde_json::Value) -> &str {
 
 fn is_valid_rule_id(id: &str) -> bool {
     blacklist::rules().iter().any(|r| r.id == id) || secrets::all_rules().iter().any(|r| r.id == id)
+}
+
+fn is_valid_tool_bin(bin: &str) -> bool {
+    blacklist::rules().iter().any(|r| r.bin == Some(bin))
+}
+
+fn run_tool(action: ToolAction) -> ExitCode {
+    match action {
+        ToolAction::Disable { bin } => {
+            if !is_valid_tool_bin(&bin) {
+                eprintln!("error: no rules bound to tool '{bin}'");
+                eprintln!("hint: run `rsh tool list` to see all known tools");
+                return ExitCode::FAILURE;
+            }
+            match disabled::add_tool(&bin) {
+                Ok(true) => {
+                    let count = blacklist::rules()
+                        .iter()
+                        .filter(|r| r.bin == Some(bin.as_str()))
+                        .count();
+                    eprintln!(
+                        "tool: disabled '{bin}' ({count} rule{})",
+                        if count == 1 { "" } else { "s" }
+                    );
+                    ExitCode::SUCCESS
+                }
+                Ok(false) => {
+                    eprintln!("tool: '{bin}' was already disabled");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("tool failed: {e:#}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        ToolAction::Enable { bin } => {
+            if !is_valid_tool_bin(&bin) {
+                eprintln!("error: no rules bound to tool '{bin}'");
+                eprintln!("hint: run `rsh tool list` to see all known tools");
+                return ExitCode::FAILURE;
+            }
+            match disabled::remove_tool(&bin) {
+                Ok(true) => {
+                    eprintln!("tool: enabled '{bin}'");
+                    ExitCode::SUCCESS
+                }
+                Ok(false) => {
+                    eprintln!("tool: '{bin}' was already enabled");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("tool failed: {e:#}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        ToolAction::List => {
+            let disabled_set = disabled::load();
+            let rules = blacklist::rules();
+            let bins: std::collections::BTreeSet<&'static str> =
+                rules.iter().filter_map(|r| r.bin).collect();
+            for bin in &bins {
+                let count = rules.iter().filter(|r| r.bin == Some(bin)).count();
+                let marker = if disabled_set.contains(&format!("tool:{bin}")) {
+                    "  [TOOL DISABLED]"
+                } else {
+                    ""
+                };
+                println!(
+                    "  {bin:<20} ({count} rule{}){marker}",
+                    if count == 1 { "" } else { "s" }
+                );
+            }
+            ExitCode::SUCCESS
+        }
+    }
 }
 
 fn run_rule(action: RuleAction) -> ExitCode {
@@ -1641,6 +1740,32 @@ mod tests {
         .to_string();
 
         assert_eq!(run_hook_from_str(&input), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn run_tool_disable_unknown_bin_returns_failure() {
+        let result = run_tool(ToolAction::Disable {
+            bin: "nonexistent-binary".to_string(),
+        });
+        assert_eq!(result, ExitCode::FAILURE);
+    }
+
+    #[test]
+    fn run_tool_enable_unknown_bin_returns_failure() {
+        let result = run_tool(ToolAction::Enable {
+            bin: "nonexistent-binary".to_string(),
+        });
+        assert_eq!(result, ExitCode::FAILURE);
+    }
+
+    #[test]
+    fn is_valid_tool_bin_rejects_unknown() {
+        assert!(!is_valid_tool_bin("nonexistent"));
+    }
+
+    #[test]
+    fn is_valid_tool_bin_accepts_kubectl() {
+        assert!(is_valid_tool_bin("kubectl"));
     }
 
     #[test]
