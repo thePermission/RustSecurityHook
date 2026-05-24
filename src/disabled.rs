@@ -47,12 +47,11 @@ pub fn load() -> HashSet<String> {
         Ok(p) => p,
         Err(_) => return HashSet::new(),
     };
-    if !path.exists() {
-        if let Ok(old) = rsh_config_base().map(|b| b.join("disabled-rules.json")) {
-            if old.exists() {
-                let _ = std::fs::rename(&old, &path);
-            }
-        }
+    if !path.exists()
+        && let Ok(old) = rsh_config_base().map(|b| b.join("disabled-rules.json"))
+        && old.exists()
+    {
+        let _ = std::fs::rename(&old, &path);
     }
     if !path.exists() {
         return HashSet::new();

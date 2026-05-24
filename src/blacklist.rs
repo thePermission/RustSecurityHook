@@ -793,10 +793,10 @@ pub fn check_filtered(command: &str, disabled: &std::collections::HashSet<String
             if disabled.contains(rule.id) {
                 continue;
             }
-            if let Some(bin) = rule.bin {
-                if disabled.contains(&format!("tool:{bin}")) {
-                    continue;
-                }
+            if let Some(bin) = rule.bin
+                && disabled.contains(&format!("tool:{bin}"))
+            {
+                continue;
             }
             if rule.regex.is_match(command)
                 || normalized
@@ -838,6 +838,11 @@ pub fn check_for_bin(content: &str, bin: Option<&str>) -> Option<Hit> {
             continue;
         }
         if disabled.contains(rule.id) {
+            continue;
+        }
+        if let Some(rule_bin) = rule.bin
+            && disabled.contains(&format!("tool:{rule_bin}"))
+        {
             continue;
         }
         if rule.regex.is_match(content)

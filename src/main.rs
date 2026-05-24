@@ -679,7 +679,7 @@ fn category_tool_disabled(
     let common_bin = items.first().and_then(|r| r.bin);
     common_bin.is_some()
         && items.iter().all(|r| r.bin == common_bin)
-        && common_bin.map_or(false, |b| disabled_set.contains(&format!("tool:{b}")))
+        && common_bin.is_some_and(|b| disabled_set.contains(&format!("tool:{b}")))
 }
 
 fn run_tool(action: ToolAction) -> ExitCode {
