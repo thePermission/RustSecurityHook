@@ -96,6 +96,14 @@ pub fn remove(id: &str) -> Result<bool> {
     Ok(removed)
 }
 
+pub fn add_tool(bin: &str) -> Result<bool> {
+    add(&format!("tool:{bin}"))
+}
+
+pub fn remove_tool(bin: &str) -> Result<bool> {
+    remove(&format!("tool:{bin}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +228,30 @@ mod tests {
             None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
         }
         assert!(path.ends_with("rsh/disabled.json") || path.ends_with(r"rsh\disabled.json"));
+    }
+
+    #[test]
+    fn add_tool_writes_tool_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("disabled.json");
+        let mut set = load_from(&path);
+        set.insert("tool:kubectl".to_string());
+        save_to(&set, &path);
+        let loaded = load_from(&path);
+        assert!(loaded.contains("tool:kubectl"));
+    }
+
+    #[test]
+    fn remove_tool_removes_tool_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("disabled.json");
+        let mut set = load_from(&path);
+        set.insert("tool:kubectl".to_string());
+        save_to(&set, &path);
+        let mut set2 = load_from(&path);
+        set2.remove("tool:kubectl");
+        save_to(&set2, &path);
+        let loaded = load_from(&path);
+        assert!(!loaded.contains("tool:kubectl"));
     }
 }
