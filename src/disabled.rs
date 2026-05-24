@@ -27,7 +27,7 @@ fn rsh_config_base() -> Result<PathBuf> {
 }
 
 pub fn config_path() -> Result<PathBuf> {
-    Ok(rsh_config_base()?.join("disabled-rules.json"))
+    Ok(rsh_config_base()?.join("disabled.json"))
 }
 
 pub fn flag_path_global() -> Result<PathBuf> {
@@ -47,6 +47,13 @@ pub fn load() -> HashSet<String> {
         Ok(p) => p,
         Err(_) => return HashSet::new(),
     };
+    if !path.exists() {
+        if let Ok(old) = rsh_config_base().map(|b| b.join("disabled-rules.json")) {
+            if old.exists() {
+                let _ = std::fs::rename(&old, &path);
+            }
+        }
+    }
     if !path.exists() {
         return HashSet::new();
     }
@@ -179,5 +186,39 @@ mod tests {
             None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
         }
         assert!(result);
+    }
+
+    #[test]
+    fn load_migrates_old_filename_to_new() {
+        let dir = tempfile::tempdir().unwrap();
+        let old_path = dir.path().join("rsh").join("disabled-rules.json");
+        let new_path = dir.path().join("rsh").join("disabled.json");
+        std::fs::create_dir_all(old_path.parent().unwrap()).unwrap();
+        std::fs::write(&old_path, r#"["k8s-drain"]"#).unwrap();
+
+        let prev = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
+        let result = load();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v) },
+            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
+        }
+
+        assert!(result.contains("k8s-drain"), "migrated content should be loaded");
+        assert!(new_path.exists(), "disabled.json should exist after migration");
+        assert!(!old_path.exists(), "disabled-rules.json should be gone after migration");
+    }
+
+    #[test]
+    fn config_path_points_to_disabled_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", dir.path()) };
+        let path = config_path().unwrap();
+        match prev {
+            Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v) },
+            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
+        }
+        assert!(path.ends_with("rsh/disabled.json") || path.ends_with(r"rsh\disabled.json"));
     }
 }
