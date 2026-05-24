@@ -1,5 +1,7 @@
 # rsh – Rust Security Hook
 
+![rsh](image.png)
+
 A lean Claude Code and Codex `PreToolUse` hook. Before every protected tool call, `rsh` checks the command against a blacklist and blocks it on a match by exiting with a reason on stderr. Claude Code and Codex treat that as a refused tool call and surface the message back to the model.
 
 Out of the box, `rsh` covers:
